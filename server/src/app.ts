@@ -21,6 +21,7 @@ import { downloadRoutes, releaseRoutes } from "./modules/releases/routes.ts";
 import { agentRoutes, enrollmentRoutes, nodeRoutes } from "./modules/nodes/routes.ts";
 import { templateRoutes } from "./modules/templates/routes.ts";
 import { instanceRoutes } from "./modules/instances/routes.ts";
+import { sshKeyRoutes } from "./modules/sftp/routes.ts";
 import { agentTransferRoutes, fileRoutes } from "./modules/files/routes.ts";
 import { wsRoutes } from "./ws/routes.ts";
 
@@ -96,6 +97,7 @@ export function createApp(): Hono<AppEnv> {
   api.route("/templates", templateRoutes);
   api.route("/instances", instanceRoutes);
   api.route("/files", fileRoutes);
+  api.route("/ssh-keys", sshKeyRoutes);
   app.route("/api/v1", api);
   app.all(
     "/api/*",

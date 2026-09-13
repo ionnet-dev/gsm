@@ -8,7 +8,7 @@ import {
   type NonAttribute,
 } from "sequelize";
 import type { DockerInfo, Inventory, Metrics, NodeStatus } from "@gsm/shared";
-import { DEFAULT_PORT_RANGE, NODE_STATUSES } from "@gsm/shared";
+import { DEFAULT_PORT_RANGE, DEFAULT_SFTP_PORT, NODE_STATUSES } from "@gsm/shared";
 import { sequelize } from "../../db/sequelize.ts";
 import { ID } from "../../lib/model.ts";
 import type { User } from "../users/models.ts";
@@ -87,6 +87,11 @@ export class Node extends Model<InferAttributes<Node>, InferCreationAttributes<N
   declare bindAddress: CreationOptional<string>;
   declare portRangeStart: CreationOptional<number>;
   declare portRangeEnd: CreationOptional<number>;
+  /** The agent's SFTP port; null = off. */
+  declare sftpPort: CreationOptional<number | null>;
+  /** As the agent last reported from agent.configure. */
+  declare sftpHostKey: CreationOptional<string | null>;
+  declare sftpError: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 
@@ -156,6 +161,9 @@ Node.init(
       allowNull: false,
       defaultValue: DEFAULT_PORT_RANGE.end,
     },
+    sftpPort: { type: DataTypes.INTEGER, allowNull: true, defaultValue: DEFAULT_SFTP_PORT },
+    sftpHostKey: { type: DataTypes.STRING(100), allowNull: true },
+    sftpError: { type: DataTypes.STRING(500), allowNull: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),
   },

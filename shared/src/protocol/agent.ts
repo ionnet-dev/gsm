@@ -8,6 +8,7 @@ import { instanceEvents, instanceMethods } from "./instances.ts";
 import { fileMethods } from "./files.ts";
 import { backupMethods } from "./backups.ts";
 import { imageMethods } from "./images.ts";
+import { SftpConfig, sftpEvents, sftpMethods, SftpStatus } from "./sftp.ts";
 
 // ---- inventory & presence -------------------------------------------------
 
@@ -92,6 +93,8 @@ export const AgentConfigureParams = z.object({
     .object({ server: z.string(), username: z.string(), password: z.string() })
     .nullable()
     .optional(),
+  /** The node's SFTP port and bind address; absent leaves SFTP as it is. */
+  sftp: SftpConfig.optional(),
 });
 export type AgentConfigureParams = z.infer<typeof AgentConfigureParams>;
 
@@ -105,7 +108,11 @@ export const AgentUpdateParams = z.object({
 /** Method table: server -> agent. Params/result/stream schemas per method. */
 export const agentMethods = {
   "agent.ping": { params: z.object({}), result: PingResult },
-  "agent.configure": { params: AgentConfigureParams, result: z.object({}) },
+  /** Agents too old for SFTP answer `{}`. */
+  "agent.configure": {
+    params: AgentConfigureParams,
+    result: z.object({ sftp: SftpStatus.optional() }),
+  },
   /**
    * Download `<server>/<path>`, verify, replace the binary and exit so systemd restarts the agent.
    */
@@ -118,6 +125,7 @@ export const agentMethods = {
   ...fileMethods,
   ...backupMethods,
   ...imageMethods,
+  ...sftpMethods,
 } as const;
 export type AgentMethod = keyof typeof agentMethods;
 export type AgentParams<M extends AgentMethod> = z.input<(typeof agentMethods)[M]["params"]>;
@@ -129,6 +137,7 @@ export const agentEvents = {
   metrics: Metrics,
   "agent.log": z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string() }),
   ...instanceEvents,
+  ...sftpEvents,
 } as const;
 export type AgentEvent = keyof typeof agentEvents;
 export type AgentEventData<E extends AgentEvent> = z.infer<(typeof agentEvents)[E]>;

@@ -123,6 +123,12 @@ socket: the server offers a one-time transfer token; the agent GETs an upload's 
 `/api/v1/agents/transfers/:token` (and checks the SHA-256 the server counted) or POSTs a download's
 bytes there. Every read of contents and every change is audited on the instance.
 
+SFTP goes to the node directly: the agent serves it on the node's SFTP port and asks the server
+about each sign-in (`sftp.auth`, `modules/sftp/`). Usernames are `<sftp name>.<short instance
+id>`;
+a user signs in with their SFTP password for that instance or one of their SSH keys. See
+`docs/protocol.md` → SFTP and `docs/security.md` → SFTP.
+
 Backups are `.tar.gz` archives under `<dataDir>/backups/<uuid>/` made by the agent (`backup.create`,
 progress streamed), recorded in `backups` with size and SHA-256. Restoring requires a stopped
 instance. Downloads go through the same transfer relay.

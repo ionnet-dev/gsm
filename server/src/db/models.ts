@@ -12,6 +12,7 @@ import { EnrollmentToken, Node, NodeUser } from "../modules/nodes/models.ts";
 import { Template } from "../modules/templates/models.ts";
 import { Backup, Instance, InstancePort, InstanceUser } from "../modules/instances/models.ts";
 import { InstancePlayer } from "../modules/players/models.ts";
+import { SftpPassword, SshKey } from "../modules/sftp/models.ts";
 
 Session.belongsTo(User, { as: "user", foreignKey: "userId" });
 User.hasMany(Session, { as: "sessions", foreignKey: "userId" });
@@ -49,6 +50,10 @@ Instance.hasMany(Backup, { as: "backups", foreignKey: "instanceId" });
 Backup.belongsTo(User, { as: "creator", foreignKey: "createdBy" });
 InstancePlayer.belongsTo(Instance, { as: "instance", foreignKey: "instanceId" });
 Instance.hasMany(InstancePlayer, { as: "players", foreignKey: "instanceId" });
+SftpPassword.belongsTo(Instance, { as: "instance", foreignKey: "instanceId" });
+SftpPassword.belongsTo(User, { as: "user", foreignKey: "userId" });
+SshKey.belongsTo(User, { as: "user", foreignKey: "userId" });
+User.hasMany(SshKey, { as: "sshKeys", foreignKey: "userId" });
 
 export {
   AgentRelease,
@@ -67,6 +72,8 @@ export {
   RecoveryCode,
   Session,
   Setting,
+  SftpPassword,
+  SshKey,
   Template,
   User,
 };

@@ -98,6 +98,93 @@ type RegistryAuth struct {
 type AgentConfigureParams struct {
 	// Absent means "not mentioned": leave as is. A JSON null clears the credentials.
 	RegistryAuth json.RawMessage `json:"registryAuth,omitempty"`
+	// SFTP is nil when not mentioned: the listener stays as it is.
+	SFTP *SFTPConfig `json:"sftp,omitempty"`
+}
+
+// SFTPConfig is agent.configure's sftp field. A nil Port stops the listener.
+type SFTPConfig struct {
+	Port        *int   `json:"port"`
+	BindAddress string `json:"bindAddress"`
+}
+
+// AgentConfigureResult answers agent.configure.
+type AgentConfigureResult struct {
+	SFTP SFTPStatus `json:"sftp"`
+}
+
+// SFTPStatus says whether the SFTP listener is up; HostKey is the SHA256 fingerprint of its key.
+type SFTPStatus struct {
+	Listening bool    `json:"listening"`
+	Port      *int    `json:"port"`
+	HostKey   string  `json:"hostKey"`
+	Error     *string `json:"error"`
+}
+
+// SFTPAuthParams is the agent → server sftp.auth request, sent for every sign-in attempt.
+type SFTPAuthParams struct {
+	Username      string `json:"username"`
+	Method        string `json:"method"` // password | publickey
+	Password      string `json:"password,omitempty"`
+	PublicKey     string `json:"publicKey,omitempty"` // authorized_keys format
+	RemoteAddress string `json:"remoteAddress"`
+}
+
+// SFTPAuthResult binds an allowed session to a user and an instance.
+type SFTPAuthResult struct {
+	Allowed    bool   `json:"allowed"`
+	UserID     int    `json:"userId,omitempty"`
+	UUID       string `json:"uuid,omitempty"`
+	Credential string `json:"credential,omitempty"`
+}
+
+// SFTPSessionsParams filters sftp.sessions; nil UserIDs means every session.
+type SFTPSessionsParams struct {
+	UserIDs []int `json:"userIds,omitempty"`
+}
+
+type SFTPSessionInfo struct {
+	ID            string    `json:"id"`
+	UserID        int       `json:"userId"`
+	UUID          string    `json:"uuid"`
+	Method        string    `json:"method"`
+	Credential    string    `json:"credential"`
+	RemoteAddress string    `json:"remoteAddress"`
+	OpenedAt      time.Time `json:"openedAt"`
+}
+
+type SFTPSessionsResult struct {
+	Sessions []SFTPSessionInfo `json:"sessions"`
+}
+
+type SFTPDisconnectParams struct {
+	IDs []string `json:"ids"`
+}
+
+type SFTPDisconnectResult struct {
+	Closed int `json:"closed"`
+}
+
+// SFTPSessionStats counts what one SSH connection did.
+type SFTPSessionStats struct {
+	Uploads   int64 `json:"uploads"`
+	Downloads int64 `json:"downloads"`
+	Removed   int64 `json:"removed"`
+	Renamed   int64 `json:"renamed"`
+	Mkdirs    int64 `json:"mkdirs"`
+	BytesIn   int64 `json:"bytesIn"`
+	BytesOut  int64 `json:"bytesOut"`
+}
+
+// SFTPSessionEvent is the sftp.session event: "opened" after sign-in, "closed" with Stats.
+type SFTPSessionEvent struct {
+	ID            string            `json:"id"`
+	State         string            `json:"state"`
+	UserID        int               `json:"userId"`
+	UUID          string            `json:"uuid"`
+	Method        string            `json:"method"`
+	RemoteAddress string            `json:"remoteAddress"`
+	Stats         *SFTPSessionStats `json:"stats"`
 }
 
 // Auth decodes the registryAuth field: present says whether it was sent at all.

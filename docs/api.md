@@ -39,7 +39,8 @@ including instances created later.
 
 Admins manage every node. A node's owners may use every node route below except deleting the node
 and changing its owners; lists and summaries only hold the nodes the requester manages, and other
-nodes answer 404. Enrollment tokens are admin only.
+nodes answer 404. Enrollment tokens are admin only. `PATCH /nodes/:id` also takes `sftpPort` (null
+turns SFTP off; it must lie outside the port pool and not be an instance's port).
 
 | Method   | Path                                | Notes                                                                                                  |
 | -------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -130,6 +131,22 @@ Only for templates with a `players` section (`InstanceDto.players` is null other
 | GET    | ``         | view       | `InstancePlayersDto`: online and recent players; `lists` and `actions` only with the `players` permission |
 | POST   | `/refresh` | players    | reads the lists again and, while running, types the template's list command → `{ ok }`                    |
 | POST   | `/actions` | players    | `PlayerActionBody` → `{ ok, command }`; 409 when not running, 400 with per-field `details` for bad values |
+
+### SFTP (`files` permission), under `/instances/:id/sftp`
+
+| Method | Path        | Notes                                                                                                      |
+| ------ | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| GET    | `/`         | `{ sftp: InstanceSftpDto }`: host, port, the requester's username, host key, password state                |
+| POST   | `/password` | makes or replaces the requester's SFTP password → `{ password, sftp }` (shown once); not with an API token |
+| DELETE | `/password` | → `{ sftp }`                                                                                               |
+
+## SSH keys (the requester's own)
+
+| Method | Path            | Notes                                                                          |
+| ------ | --------------- | ------------------------------------------------------------------------------ |
+| GET    | `/ssh-keys`     | `{ items: SshKeyDto[] }`                                                       |
+| POST   | `/ssh-keys`     | `AddSshKeyBody` (`{ name, publicKey }`) → 201 `{ key }`; not with an API token |
+| DELETE | `/ssh-keys/:id` | open SFTP sessions signed in with it close                                     |
 
 ## Live updates
 

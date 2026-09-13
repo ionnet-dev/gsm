@@ -41,9 +41,10 @@ curl -fsSL https://gsm.example.com/install.sh | sudo sh -s -- \
   --server https://gsm.example.com --token gsm_enr_...
 ```
 
-Open the node's port range (default 30000–30999, TCP and UDP) in its firewall. Instances are
-published on the node's bind address (default every interface); players connect to the node's public
-address, which defaults to the address the agent connects from and can be set per node.
+Open the node's port range (default 30000–30999, TCP and UDP) and its SFTP port (default 2022, TCP)
+in its firewall. Instances are published on the node's bind address (default every interface);
+players connect to the node's public address, which defaults to the address the agent connects from
+and can be set per node.
 
 The instance images come from `ghcr.io/ionnet-dev` (Settings → General → Image registry). Nodes pull
 them on first use; for a private registry, enter credentials under Settings → General → Registry,

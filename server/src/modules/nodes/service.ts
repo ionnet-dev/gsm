@@ -112,6 +112,7 @@ export function nodeDto(n: Node, counts?: Counts, owners: Owners = []): NodeDto 
     runningCount: counts?.running ?? 0,
     allocatedMemoryMb: counts?.allocatedMemoryMb ?? 0,
     owners,
+    sftp: { port: n.sftpPort, hostKey: n.sftpHostKey, error: n.sftpError },
   };
 }
 
@@ -282,21 +283,35 @@ export async function authenticateAgent(bearer: string | undefined): Promise<Nod
 // Presence (called by the agent gateway)
 // ---------------------------------------------------------------------------
 
-export type HelloResult =
-  | { ok: true; config: AgentConfigureParams }
-  | { ok: false; reason: string };
+export type HelloResult = { ok: true } | { ok: false; reason: string };
 
-async function agentConfig(): Promise<AgentConfigureParams> {
-  return { registryAuth: await getRegistryAuth() };
+async function agentConfig(nodeId: number): Promise<AgentConfigureParams> {
+  const node = await Node.findByPk(nodeId, { attributes: ["id", "sftpPort", "bindAddress"] });
+  return {
+    registryAuth: await getRegistryAuth(),
+    sftp: { port: node?.sftpPort ?? null, bindAddress: node?.bindAddress ?? "0.0.0.0" },
+  };
+}
+
+/** Send agent.configure to one node and keep what it reports about SFTP. */
+export async function configureAgent(nodeId: number): Promise<void> {
+  const result = await agentGateway.request(nodeId, "agent.configure", await agentConfig(nodeId));
+  const s = result.sftp;
+  await Node.update(
+    s
+      ? { sftpHostKey: s.hostKey || null, sftpError: s.error }
+      : { sftpError: "The agent on this node is too old for SFTP; update it" },
+    { where: { id: nodeId } },
+  );
+  uiGateway.broadcast("node.updated", { nodeId });
 }
 
 /** Re-sends agent.configure to connected agents after a setting changed. */
 export async function reconfigureAgents(ids = agentGateway.connectedIds()): Promise<void> {
-  const cfg = await agentConfig();
   await Promise.all(
     ids.filter((id) => agentGateway.isConnected(id)).map(async (id) => {
       try {
-        await agentGateway.request(id, "agent.configure", cfg);
+        await configureAgent(id);
       } catch (err) {
         nlog.warn("agent.configure failed", { id, err: String(err) });
       }
@@ -329,7 +344,7 @@ export async function onAgentHello(nodeId: number, hello: Hello): Promise<HelloR
   });
   uiGateway.broadcast("node.updated", { nodeId });
   if (wasOffline) events.emit("node.online", { nodeId });
-  return { ok: true, config: await agentConfig() };
+  return { ok: true };
 }
 
 export async function onAgentMetrics(nodeId: number, metrics: Metrics): Promise<void> {
@@ -429,8 +444,26 @@ export async function update(id: number, input: z.infer<typeof UpdateNodeBody>):
   if (end - start > 20_000) throw badRequest("A port range covers at most 20000 ports");
   n.portRangeStart = start;
   n.portRangeEnd = end;
+  if (input.sftpPort !== undefined) {
+    if (
+      input.sftpPort !== null &&
+      (await InstancePort.count({ where: { nodeId: id, port: input.sftpPort } }))
+    ) {
+      throw conflict(`Port ${input.sftpPort} is used by an instance`);
+    }
+    n.sftpPort = input.sftpPort;
+  }
+  if (n.sftpPort !== null && n.sftpPort >= start && n.sftpPort <= end) {
+    throw badRequest(`The SFTP port (${n.sftpPort}) must be outside the port pool`);
+  }
+  const sftpChanged = n.changed("sftpPort") || n.changed("bindAddress");
   await n.save();
   uiGateway.broadcast("node.updated", { nodeId: id });
+  if (sftpChanged && agentGateway.isConnected(id)) {
+    configureAgent(id).catch((err) =>
+      nlog.warn("agent.configure failed", { id, err: String(err) })
+    );
+  }
   return n;
 }
 

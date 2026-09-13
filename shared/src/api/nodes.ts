@@ -6,6 +6,9 @@ import { Pagination } from "./common.ts";
 /** The default port pool for a new node. */
 export const DEFAULT_PORT_RANGE = { start: 30000, end: 30999 } as const;
 
+/** The SFTP port a new node gets. */
+export const DEFAULT_SFTP_PORT = 2022;
+
 export interface NodeDto {
   id: number;
   name: string;
@@ -33,6 +36,8 @@ export interface NodeDto {
   allocatedMemoryMb: number;
   /** Users who own the node (see NodeAccessDto). */
   owners: { id: number; name: string }[];
+  /** SFTP: `port` null = off; `hostKey` and `error` as the agent last reported them. */
+  sftp: { port: number | null; hostKey: string | null; error: string | null };
 }
 
 export interface NodeDetailDto extends NodeDto {
@@ -96,5 +101,7 @@ export const UpdateNodeBody = z.object({
   bindAddress: z.string().min(1).max(64).optional(),
   portRangeStart: z.number().int().min(1024).max(65535).optional(),
   portRangeEnd: z.number().int().min(1024).max(65535).optional(),
+  /** null turns SFTP off on the node. */
+  sftpPort: z.number().int().min(1).max(65535).nullable().optional(),
 });
 export type UpdateNodeBody = z.input<typeof UpdateNodeBody>;

@@ -23,6 +23,7 @@ import (
 	"github.com/ionnet/gsm/agent/internal/logging"
 	"github.com/ionnet/gsm/agent/internal/metrics"
 	"github.com/ionnet/gsm/agent/internal/protocol"
+	"github.com/ionnet/gsm/agent/internal/sftpd"
 	"github.com/ionnet/gsm/agent/internal/transfer"
 	"github.com/ionnet/gsm/agent/internal/transport"
 	"github.com/ionnet/gsm/agent/internal/update"
@@ -185,11 +186,15 @@ func run(args []string) int {
 		},
 	})
 
-	registerAgent(client, cfg, dk, manager, log, stop)
-	registerInstances(client, manager, log)
+	sftpSrv := newSFTP(ctx, client, cfg, manager, log)
+	defer sftpSrv.Close()
+
+	registerAgent(client, cfg, dk, manager, sftpSrv, log, stop)
+	registerInstances(client, manager, sftpSrv, log)
 	registerFiles(client, manager, xfer, log)
 	registerBackups(client, manager, xfer, log)
 	registerImages(client, dk, log)
+	registerSFTP(client, sftpSrv)
 
 	log.Info("gsm-agent starting", "version", version, "server", cfg.ServerURL, "os", runtime.GOOS, "data_dir", cfg.DataDir)
 	if err := client.Run(ctx); err != nil && ctx.Err() == nil {
@@ -219,8 +224,9 @@ func metricsLoop(ctx context.Context, c *transport.Client, s *metrics.Sampler, e
 	}
 }
 
-// registerAgent wires agent.ping, agent.configure, agent.update and sys.inventory.
-func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Client, manager *instances.Manager, log *slog.Logger, stop context.CancelFunc) {
+// registerAgent wires agent.ping, agent.configure (registry credentials and the SFTP listener),
+// agent.update and sys.inventory.
+func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Client, manager *instances.Manager, sftpSrv *sftpd.Server, log *slog.Logger, stop context.CancelFunc) {
 	client.Handle("agent.ping", func(context.Context, json.RawMessage, transport.StreamWriter) (any, error) {
 		return protocol.PingResult{At: time.Now().UTC(), AgentVersion: version}, nil
 	})
@@ -238,7 +244,11 @@ func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Clien
 			dk.SetRegistryAuth(auth)
 			log.Info("registry credentials", "set", auth != nil)
 		}
-		return map[string]any{}, nil
+		status := sftpSrv.Status()
+		if p.SFTP != nil {
+			status = sftpSrv.Configure(p.SFTP.Port, p.SFTP.BindAddress)
+		}
+		return protocol.AgentConfigureResult{SFTP: status}, nil
 	})
 	client.Handle("agent.update", func(_ context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
 		var p protocol.AgentUpdateParams
@@ -278,7 +288,7 @@ func validSpec(s *protocol.InstanceSpec) bool {
 }
 
 // registerInstances wires inst.*.
-func registerInstances(client *transport.Client, m *instances.Manager, log *slog.Logger) {
+func registerInstances(client *transport.Client, m *instances.Manager, sftpSrv *sftpd.Server, log *slog.Logger) {
 	client.Handle("inst.list", func(ctx context.Context, _ json.RawMessage, _ transport.StreamWriter) (any, error) {
 		list, err := m.List(ctx)
 		if err != nil {
@@ -362,6 +372,8 @@ func registerInstances(client *transport.Client, m *instances.Manager, log *slog
 			return nil, err
 		}
 		log.Info("inst.remove", "uuid", p.UUID, "delete_files", p.DeleteFiles)
+		// Nobody may keep files open in a directory that is about to go.
+		sftpSrv.CloseInstance(p.UUID)
 		return map[string]any{}, rpcErr(m.Remove(ctx, p.UUID, p.DeleteFiles))
 	})
 	client.Handle("inst.stats", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {

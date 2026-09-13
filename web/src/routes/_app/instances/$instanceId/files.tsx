@@ -3,6 +3,7 @@ import { roleAllows } from "@gsm/shared";
 import { useInstance } from "@/api/instances";
 import { EmptyState } from "@/components/data/empty-state";
 import { FileManager } from "@/components/files/file-manager";
+import { SftpBar } from "@/components/files/sftp-panel";
 
 const parent = getRouteApi("/_app/instances/$instanceId");
 
@@ -17,5 +18,11 @@ function FilesTab() {
   if (instance.node.status === "offline") {
     return <EmptyState title="Node offline" description="Files are read live from the node." />;
   }
-  return <FileManager instanceId={instanceId} canEdit={roleAllows(instance.myRole, "files")} />;
+  const canEdit = roleAllows(instance.myRole, "files");
+  return (
+    <div className="grid gap-3">
+      {canEdit && <SftpBar instanceId={instanceId} />}
+      <FileManager instanceId={instanceId} canEdit={canEdit} />
+    </div>
+  );
 }

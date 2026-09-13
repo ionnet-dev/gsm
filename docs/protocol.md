@@ -29,7 +29,7 @@ named there; this table is the overview.
 | Method                    | Params                            | Result / stream                                                             |
 | ------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
 | `agent.ping`              | `{}`                              | `{ at, agentVersion }`                                                      |
-| `agent.configure`         | `{ registryAuth? }`               | `{}` — sent after hello and when settings change                            |
+| `agent.configure`         | `{ registryAuth?, sftp? }`        | `{ sftp? }` (SFTP status, see SFTP below); sent after hello and on changes  |
 | `agent.update`            | `{ version, path, sha256 }`       | `{ replaced, message }`; the agent restarts into the new binary             |
 | `sys.inventory`           | `{}`                              | `Inventory`                                                                 |
 | `inst.list`               | `{}`                              | `{ instances: InstanceState[] }` — every container labelled `gsm.instance`  |
@@ -51,6 +51,8 @@ named there; this table is the overview.
 | `image.list`              | `{}`                              | `{ images: ImageInfo[] }`                                                   |
 | `image.pull`              | `{ ref }`                         | stream `PullProgress`; result `{ ref, id }`                                 |
 | `image.remove`            | `{ ref }`                         | `{}`                                                                        |
+| `sftp.sessions`           | `{ userIds? }`                    | `{ sessions: SftpSession[] }` — open SFTP connections                       |
+| `sftp.disconnect`         | `{ ids }`                         | `{ closed }`                                                                |
 
 ### The instance spec
 
@@ -89,6 +91,28 @@ SIGKILL.
 | `inst.console` | `{ uuid, stream, lines }`                      | about every 100 ms while output flows                 |
 | `inst.stats`   | `{ stats: InstanceStats[] }`                   | every 10 s for running instances                      |
 | `agent.log`    | `{ level, message }`                           | notable agent-side events                             |
+| `sftp.session` | `SftpSessionEvent`                             | an SFTP sign-in (`opened`) or its end (`closed`)      |
+
+## Agent → server requests
+
+Schemas: `shared/src/protocol/sftp.ts` (`serverMethods`). The agent sends a `req` envelope and the
+server answers with `res`; any other method is refused with `unknown_method`.
+
+| Method      | Params                                                       | Result                                     |
+| ----------- | ------------------------------------------------------------ | ------------------------------------------ |
+| `sftp.auth` | `{ username, method, password?, publicKey?, remoteAddress }` | `{ allowed, userId?, uuid?, credential? }` |
+
+### SFTP
+
+The agent serves SFTP (SSH with the `sftp` subsystem only) on the node's SFTP port, default 2022,
+with an ed25519 host key it creates once at `<data_dir>/state/sftp_host_ed25519_key`. Usernames are
+`<sftp name>.<first 8 characters of the instance uuid>`. For every password (or keyboard-interactive
+answer, sent as `password`) and every key a client offers, the agent asks the server with
+`sftp.auth` (10 s timeout; no answer means no) and never caches the answer. An allowed session is
+confined to `<data_dir>/instances/<uuid>` with `os.Root`, and what it creates is owned by the
+instance's container user. `credential` is opaque to the agent and comes back in `sftp.sessions`:
+when someone's access changes, the server re-checks each listed session and closes the ones no
+longer allowed with `sftp.disconnect`. `inst.remove` closes the instance's sessions itself.
 
 ## Transfers
 

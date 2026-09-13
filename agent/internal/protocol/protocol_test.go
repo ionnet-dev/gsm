@@ -91,6 +91,40 @@ func TestConfigureNullClearsAuth(t *testing.T) {
 	}
 }
 
+func TestSFTPConfigure(t *testing.T) {
+	var p AgentConfigureParams
+	if err := json.Unmarshal([]byte(`{"sftp":{"port":null,"bindAddress":"0.0.0.0"}}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.SFTP == nil || p.SFTP.Port != nil || p.SFTP.BindAddress != "0.0.0.0" {
+		t.Fatalf("port null should stop the listener: %+v", p.SFTP)
+	}
+	var q AgentConfigureParams
+	_ = json.Unmarshal([]byte(`{}`), &q)
+	if q.SFTP != nil {
+		t.Fatalf("absent sftp should stay nil: %+v", q.SFTP)
+	}
+	var r AgentConfigureParams
+	_ = json.Unmarshal([]byte(`{"sftp":{"port":2022,"bindAddress":"10.0.0.5"}}`), &r)
+	if r.SFTP == nil || r.SFTP.Port == nil || *r.SFTP.Port != 2022 {
+		t.Fatalf("port not decoded: %+v", r.SFTP)
+	}
+	out, _ := json.Marshal(AgentConfigureResult{SFTP: SFTPStatus{HostKey: "SHA256:x"}})
+	if want := `{"sftp":{"listening":false,"port":null,"hostKey":"SHA256:x","error":null}}`; string(out) != want {
+		t.Fatalf("configure result %s, want %s", out, want)
+	}
+	ev, _ := json.Marshal(SFTPSessionEvent{ID: "a", State: "opened"})
+	if !containsKey(ev, `"stats":null`) || !containsKey(ev, `"remoteAddress"`) {
+		t.Fatalf("session event %s", ev)
+	}
+	var all, none SFTPSessionsParams
+	_ = json.Unmarshal([]byte(`{}`), &all)
+	_ = json.Unmarshal([]byte(`{"userIds":[]}`), &none)
+	if all.UserIDs != nil || none.UserIDs == nil || len(none.UserIDs) != 0 {
+		t.Fatalf("userIds: absent=%v empty=%v", all.UserIDs, none.UserIDs)
+	}
+}
+
 func containsKey(b []byte, key string) bool {
 	return len(b) > 0 && indexOf(string(b), key) >= 0
 }

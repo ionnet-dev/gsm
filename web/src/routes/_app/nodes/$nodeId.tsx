@@ -201,6 +201,15 @@ function Overview({ node: n }: { node: NodeDetailDto }) {
             <Fact k="Uptime" v={m ? formatUptime(m.uptimeSeconds) : "—"} />
             <Fact k="Load" v={m ? m.load.map((l) => l.toFixed(2)).join(" ") : "—"} />
             <Fact k="Public address" v={n.publicAddress} copy />
+            <Fact
+              k="SFTP"
+              v={n.sftp.port === null
+                ? "off"
+                : n.sftp.error
+                ? `port ${n.sftp.port}: ${n.sftp.error}`
+                : `port ${n.sftp.port}`}
+            />
+            {n.sftp.hostKey && <Fact k="SFTP host key" v={n.sftp.hostKey} copy />}
             <Fact k="Agent from" v={n.remoteAddress ?? "—"} />
             <Fact k="Data dir" v={n.dataDir ?? "—"} />
             <Fact k="Data used" v={m ? formatBytes(m.dataUsedBytes) : "—"} />
@@ -490,6 +499,7 @@ function NodeSettings({ node: n }: { node: NodeDetailDto }) {
   const [start, setStart] = useState(n.portRangeStart);
   const [end, setEnd] = useState(n.portRangeEnd);
   const [notes, setNotes] = useState(n.notes ?? "");
+  const [sftpPort, setSftpPort] = useState(n.sftp.port === null ? "" : String(n.sftp.port));
   const err = (e: Error) => toast.error(errorMessage(e));
   return (
     <div className="grid max-w-2xl gap-4">
@@ -542,6 +552,22 @@ function NodeSettings({ node: n }: { node: NodeDetailDto }) {
                 onChange={(e) => setEnd(Number(e.target.value))}
               />
             </Field>
+            <Field
+              label="SFTP port"
+              htmlFor="nsftp"
+              hint="File access for each instance's users. Empty turns SFTP off; open it (TCP) in the firewall."
+              error={n.sftp.error ?? undefined}
+            >
+              <Input
+                id="nsftp"
+                type="number"
+                min={1}
+                max={65535}
+                value={sftpPort}
+                placeholder="off"
+                onChange={(e) => setSftpPort(e.target.value)}
+              />
+            </Field>
           </div>
           <Field label="Notes" htmlFor="nnotes">
             <Textarea
@@ -564,6 +590,7 @@ function NodeSettings({ node: n }: { node: NodeDetailDto }) {
                   bindAddress,
                   portRangeStart: start,
                   portRangeEnd: end,
+                  sftpPort: sftpPort.trim() ? Number(sftpPort) : null,
                   notes: notes || null,
                 },
                 { onSuccess: () => toast.success("Saved"), onError: err },

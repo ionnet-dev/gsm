@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ApiTokensCard } from "@/components/settings/api-tokens";
+import { SshKeysCard } from "@/components/settings/ssh-keys";
 import { TwoFactorCard } from "@/components/settings/two-factor";
 
 export const Route = createFileRoute("/_app/settings/account")({
@@ -106,6 +107,7 @@ function Account() {
         </CardContent>
       </Card>
       <TwoFactorCard />
+      <SshKeysCard />
       <ApiTokensCard />
     </div>
   );

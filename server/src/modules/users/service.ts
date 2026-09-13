@@ -1,6 +1,7 @@
 import { User } from "../../db/models.ts";
 import { sequelize } from "../../db/sequelize.ts";
 import { badRequest, conflict, notFound } from "../../lib/errors.ts";
+import { events } from "../../lib/events.ts";
 import { uiGateway } from "../../ws/ui-gateway.ts";
 import { endSessions, hashPassword } from "../auth/service.ts";
 import { adminReset } from "../auth/two-factor.ts";
@@ -82,6 +83,7 @@ export async function update(
   if (input.twoFactorEnabled === false && user.hasTwoFactor) await adminReset(user);
   // Live sockets carry the scope they connected with; make them reconnect with the new one.
   if (roleChanged) uiGateway.reconnectUser(id);
+  if (roleChanged || disabling) events.emit("access.changed", { userIds: [id] });
   return user;
 }
 
@@ -93,6 +95,7 @@ export async function remove(id: number, actorId: number): Promise<void> {
   }
   await user.destroy();
   uiGateway.disconnectUser(id);
+  events.emit("access.changed", { userIds: [id] });
 }
 
 export async function resetPassword(id: number, password: string): Promise<void> {

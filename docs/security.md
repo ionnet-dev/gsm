@@ -67,6 +67,27 @@ What access to an instance means in practice:
   command it typed. The Players tab reads the game's list files (operators, bans, whitelist) without
   a `file.view` entry per read; viewers are not shown those lists.
 
+## SFTP
+
+Each node's agent serves SFTP on one port (default 2022, set per node; null turns it off). Only the
+`sftp` subsystem is offered: no shell, exec, port forwarding or other channels. Signing in needs the
+`files` permission on the instance (owner or operator, admins and node owners included), checked by
+the server on every sign-in, and either:
+
+- the user's **SFTP password for that instance**, made on its Files tab, shown once, stored as an
+  argon2id hash and separate from the panel password, so panel two-factor keeps its meaning; or
+- one of the user's **SSH keys** (My account), ed25519, ECDSA or RSA of at least 2048 bits.
+
+The panel password never works over SFTP. Twenty failed passwords from one address, or for one
+username, lock password sign-ins for ten minutes. The agent confines every session to the instance's
+directory with `os.Root`, so neither `..` nor symlinks reach outside it, refuses to create symlinks
+and hard links, and creates files as the container user. When access changes (a grant, a role, node
+ownership, a disabled or deleted user, a new SFTP password, a removed key), the server re-checks the
+open sessions and closes the ones no longer allowed. Sessions are audited when they open and when
+they close (with how many files were uploaded, downloaded, removed and renamed); single SFTP
+operations are not audited one by one, unlike the web file manager. SFTP needs the node connected to
+the server, since the agent asks the server about every sign-in.
+
 ## Agents and nodes
 
 Agents authenticate with `<nodeId>.<secret>`; only a SHA-256 of the secret is stored and compared in

@@ -231,12 +231,18 @@ function pickImage(def: TemplateDefinition, image: string | null | undefined, cu
 // Create / update / delete
 // ---------------------------------------------------------------------------
 
+/** Ports on the node taken by other instances, and the node's SFTP port. */
 async function usedPorts(nodeId: number, exceptInstanceId?: number): Promise<Set<number>> {
-  const rows = await InstancePort.findAll({
-    where: { nodeId, ...(exceptInstanceId ? { instanceId: { [Op.ne]: exceptInstanceId } } : {}) },
-    attributes: ["port"],
-  });
-  return new Set(rows.map((r) => r.port));
+  const [rows, node] = await Promise.all([
+    InstancePort.findAll({
+      where: { nodeId, ...(exceptInstanceId ? { instanceId: { [Op.ne]: exceptInstanceId } } : {}) },
+      attributes: ["port"],
+    }),
+    Node.findByPk(nodeId, { attributes: ["id", "sftpPort"] }),
+  ]);
+  const used = new Set(rows.map((r) => r.port));
+  if (node?.sftpPort) used.add(node.sftpPort);
+  return used;
 }
 
 export async function create(

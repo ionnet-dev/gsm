@@ -26,6 +26,8 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
   /** Last accepted TOTP time step; codes for it or earlier steps are refused (no replays). */
   declare totpLastStep: CreationOptional<number | null>;
   declare lastLoginAt: Date | null;
+  /** The first part of the user's SFTP usernames; picked the first time they need one. */
+  declare sftpName: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   /** Set by the user list query (a subquery), not a column. */
@@ -80,6 +82,7 @@ User.init(
     totpEnabledAt: { type: DataTypes.DATE(3), allowNull: true },
     totpLastStep: { type: DataTypes.BIGINT, allowNull: true },
     lastLoginAt: { type: DataTypes.DATE(3), allowNull: true },
+    sftpName: { type: DataTypes.STRING(40), allowNull: true, unique: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),
   },

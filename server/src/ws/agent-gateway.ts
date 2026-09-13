@@ -15,6 +15,7 @@ import {
   type Envelope,
   RPC_ERROR_CODES,
   type RpcError,
+  serverMethods,
 } from "@gsm/shared";
 import { HttpError } from "../lib/errors.ts";
 import { events } from "../lib/events.ts";
@@ -22,6 +23,7 @@ import { randomId } from "../lib/ids.ts";
 import { log } from "../lib/logger.ts";
 import * as nodes from "../modules/nodes/service.ts";
 import * as instanceEvents from "../modules/instances/agent-events.ts";
+import * as sftp from "../modules/sftp/service.ts";
 
 const glog = log.child("ws:agent");
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -235,15 +237,41 @@ class AgentGateway {
         }
         break;
       }
-      case "req":
-        // Agents do not call methods on the server.
-        conn.send({
-          t: "res",
-          id: env.id,
-          ok: false,
-          error: { code: RPC_ERROR_CODES.unknownMethod, message: `unknown method ${env.method}` },
-        });
+      case "req": {
+        // The one method agents call on the server: may this SFTP sign-in go ahead?
+        if (!conn.helloReceived || env.method !== "sftp.auth") {
+          conn.send({
+            t: "res",
+            id: env.id,
+            ok: false,
+            error: { code: RPC_ERROR_CODES.unknownMethod, message: `unknown method ${env.method}` },
+          });
+          break;
+        }
+        const params = serverMethods["sftp.auth"].params.safeParse(env.params);
+        if (!params.success) {
+          conn.send({
+            t: "res",
+            id: env.id,
+            ok: false,
+            error: { code: RPC_ERROR_CODES.invalidParams, message: "invalid sftp.auth params" },
+          });
+          break;
+        }
+        try {
+          const result = await sftp.authenticate(conn.nodeId, params.data);
+          conn.send({ t: "res", id: env.id, ok: true, result });
+        } catch (err) {
+          glog.error("sftp.auth failed", { nodeId, err });
+          conn.send({
+            t: "res",
+            id: env.id,
+            ok: false,
+            error: { code: RPC_ERROR_CODES.internal, message: "sign-in check failed" },
+          });
+        }
         break;
+      }
     }
   }
 
@@ -268,7 +296,7 @@ class AgentGateway {
           return;
         }
         conn.helloReceived = true;
-        this.request(conn.nodeId, "agent.configure", result.config).catch((err) =>
+        nodes.configureAgent(conn.nodeId).catch((err) =>
           glog.warn("agent.configure failed", { nodeId: conn.nodeId, err: String(err) })
         );
         // Only now, so listeners can send requests to the agent straight away.
@@ -303,6 +331,12 @@ class AgentGateway {
         const entry = agentEvents["agent.log"].safeParse(data);
         if (!entry.success) return this.badEvent(conn, event, entry.error);
         glog.info("agent log", { nodeId: conn.nodeId, ...entry.data });
+        break;
+      }
+      case "sftp.session": {
+        const session = agentEvents["sftp.session"].safeParse(data);
+        if (!session.success) return this.badEvent(conn, event, session.error);
+        if (conn.helloReceived) await sftp.onSession(conn.nodeId, session.data);
         break;
       }
       default:
