@@ -7,7 +7,9 @@ schemas in `shared/src/api/*`.
 
 Roles: site-wide `admin` or `user` (`ROLES`); per instance `owner`, `operator`, `viewer`
 (`INSTANCE_ROLES`, permissions in `INSTANCE_PERMISSIONS`). Admins may do everything. A `user`
-without access to an instance gets 404 for it, with access but not the permission 403.
+without access to an instance gets 404 for it, with access but not the permission 403. An admin can
+make a `user` owner of a node: they manage that node and are `owner` of every instance on it,
+including instances created later.
 
 ## Auth, users, settings, audit (ported from the fleet console)
 
@@ -33,7 +35,11 @@ without access to an instance gets 404 for it, with access but not the permissio
 | POST         | `/agent-releases/:id/latest`, DELETE `/agent-releases/:id` | admin   |                                                              |
 | POST         | `/agent-releases/rollout`                                  | admin   | `{ updated: number[], failed: number[], skipped }`           |
 
-## Nodes and enrollment (admin only)
+## Nodes and enrollment
+
+Admins manage every node. A node's owners may use every node route below except deleting the node
+and changing its owners; lists and summaries only hold the nodes the requester manages, and other
+nodes answer 404. Enrollment tokens are admin only.
 
 | Method   | Path                                | Notes                                                                                                  |
 | -------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -42,12 +48,15 @@ without access to an instance gets 404 for it, with access but not the permissio
 | GET      | `/nodes/summary`                    | `NodeSummary`                                                                                          |
 | GET      | `/nodes/:id`                        | `{ node: NodeDetailDto, connected }`                                                                   |
 | PATCH    | `/nodes/:id`                        | `UpdateNodeBody` → `{ node }`                                                                          |
-| DELETE   | `/nodes/:id`                        | refused (409) while it hosts instances                                                                 |
+| DELETE   | `/nodes/:id`                        | admin; refused (409) while it hosts instances                                                          |
 | POST     | `/nodes/:id/ping`                   | `{ at, agentVersion, rttMs }`                                                                          |
 | POST     | `/nodes/:id/refresh`                | re-reads the inventory → `{ node }`                                                                    |
 | GET      | `/nodes/:id/images`                 | `{ images: ImageInfo[] }` live from the agent                                                          |
 | POST     | `/nodes/:id/images/pull`            | `{ ref }` → 202; progress arrives as `image.pull` events                                               |
 | DELETE   | `/nodes/:id/images?ref=`            |                                                                                                        |
+| GET      | `/nodes/:id/access`                 | `{ items: NodeAccessDto[] }`, the node's owners                                                        |
+| PUT      | `/nodes/:id/access`                 | admin; `GrantNodeAccessBody` → `{ items }`; owner of the node and every instance on it                 |
+| DELETE   | `/nodes/:id/access/:userId`         | admin → `{ items }`                                                                                    |
 | GET/POST | `/enrollment-tokens`                | `{ items: EnrollmentTokenDto[] }`; POST `CreateEnrollmentTokenBody` → `{ token, plaintext }`           |
 | POST     | `/enrollment-tokens/:id/revoke`     |                                                                                                        |
 | POST     | `/agents/enroll`                    | agent-facing, no session: `{ token, name?, agentVersion, inventory }` → `{ agentToken, nodeId, name }` |
@@ -55,17 +64,17 @@ without access to an instance gets 404 for it, with access but not the permissio
 
 ## Templates
 
-| Method | Path                                  | Who   | Notes                                                                                       |
-| ------ | ------------------------------------- | ----- | ------------------------------------------------------------------------------------------- |
-| GET    | `/templates`                          | user  | `{ items: TemplateDto[] }` (users see them to read variables; only admins create instances) |
-| GET    | `/templates/:id`                      | user  | `{ template: TemplateDetailDto }`                                                           |
-| POST   | `/templates`                          | admin | `{ definition }` → 201 `{ template }`                                                       |
-| PUT    | `/templates/:id`                      | admin | `{ definition }`; refused for built-ins (409)                                               |
-| POST   | `/templates/:id/copy`                 | admin | `{ slug, name }` → a custom copy                                                            |
-| DELETE | `/templates/:id`                      | admin | refused while instances use it                                                              |
-| POST   | `/templates/import`                   | admin | `{ definition }` from a pasted JSON                                                         |
-| GET    | `/templates/:id/export`               | admin | the definition as a JSON download                                                           |
-| GET    | `/templates/versions?source=&parent=` | user  | `{ versions: VersionOption[] }` from the version source (cached 10 min)                     |
+| Method | Path                                  | Who   | Notes                                                                                                  |
+| ------ | ------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------ |
+| GET    | `/templates`                          | user  | `{ items: TemplateDto[] }` (users see them to read variables; admins and node owners create instances) |
+| GET    | `/templates/:id`                      | user  | `{ template: TemplateDetailDto }`                                                                      |
+| POST   | `/templates`                          | admin | `{ definition }` → 201 `{ template }`                                                                  |
+| PUT    | `/templates/:id`                      | admin | `{ definition }`; refused for built-ins (409)                                                          |
+| POST   | `/templates/:id/copy`                 | admin | `{ slug, name }` → a custom copy                                                                       |
+| DELETE | `/templates/:id`                      | admin | refused while instances use it                                                                         |
+| POST   | `/templates/import`                   | admin | `{ definition }` from a pasted JSON                                                                    |
+| GET    | `/templates/:id/export`               | admin | the definition as a JSON download                                                                      |
+| GET    | `/templates/versions?source=&parent=` | user  | `{ versions: VersionOption[] }` from the version source (cached 10 min)                                |
 
 ## Instances
 
@@ -75,7 +84,7 @@ without access to an instance gets 404 for it, with access but not the permissio
 | ------ | -------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/instances?page&pageSize&nodeId&templateId&status&q&sort&dir` | view               | `Page<InstanceDto>`                                                                                                                          |
 | GET    | `/instances/summary`                                           | view               | `InstanceSummary` over the scope                                                                                                             |
-| POST   | `/instances`                                                   | admin              | `CreateInstanceBody` → 201 `{ instance: InstanceDetailDto }`; starts the install unless `install: false`                                     |
+| POST   | `/instances`                                                   | admin, node owner  | `CreateInstanceBody` → 201 `{ instance: InstanceDetailDto }`; starts the install unless `install: false`                                     |
 | GET    | `/instances/:id`                                               | view               | `{ instance: InstanceDetailDto }`                                                                                                            |
 | PATCH  | `/instances/:id`                                               | settings           | `UpdateInstanceBody` → `{ instance }`; variables the role may not edit are refused (403); refused while running for image/ports/limits (409) |
 | DELETE | `/instances/:id?keepFiles=1`                                   | delete             | stops, removes the container and (unless kept) files, ports and backups                                                                      |
@@ -84,7 +93,7 @@ without access to an instance gets 404 for it, with access but not the permissio
 | POST   | `/instances/:id/reinstall`                                     | reinstall          | wipes nothing; runs the install script again → 202                                                                                           |
 | GET    | `/instances/:id/console?stream=console                         | install&lines=500` | console                                                                                                                                      |
 | GET    | `/instances/:id/stats`                                         | view               | `{ stats: InstanceStats                                                                                                                      |
-| GET    | `/instances/:id/access`                                        | view               | `{ items: InstanceAccessDto[] }`                                                                                                             |
+| GET    | `/instances/:id/access`                                        | view               | `{ items: InstanceAccessDto[] }`: the node's owners first (`via: "node"`, changed on the node), then grants                                  |
 | PUT    | `/instances/:id/access`                                        | access             | `GrantAccessBody` (grant or change role) → `{ items }`                                                                                       |
 | DELETE | `/instances/:id/access/:userId`                                | access             |                                                                                                                                              |
 | GET    | `/instances/:id/activity?page`                                 | view               | audit entries about the instance                                                                                                             |
@@ -126,9 +135,9 @@ Only for templates with a `players` section (`InstanceDto.players` is null other
 
 `/ws/ui` pushes `uiEvents` (see `shared/src/protocol/ui.ts`). Browsers send
 `{ "t": "sub", "instanceId" }` to receive that instance's `instance.console` events and
-`{ "t": "unsub", "instanceId" }` to stop. Node and template events reach admins only; instance
-events reach users with access to the instance. Close code 4002 means "reconnect now" (access
-changed), 4001 that the session ended.
+`{ "t": "unsub", "instanceId" }` to stop. Node events reach admins and the node's owners, template
+events admins only; instance events reach users with access to the instance. Close code 4002 means
+"reconnect now" (access changed), 4001 that the session ended.
 
 `instance.players` (`{ instanceId, online }`) follows every join, leave, list answer and change to
 the game's player lists; the web app patches `InstanceDto.players` and refetches the Players tab.

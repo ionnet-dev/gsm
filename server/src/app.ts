@@ -10,6 +10,7 @@ import { log } from "./lib/logger.ts";
 import type { Session } from "./modules/auth/models.ts";
 import type { User } from "./modules/users/models.ts";
 import type { InstanceScope } from "./modules/instances/access.ts";
+import type { NodeScope } from "./modules/nodes/access.ts";
 import { csrfGuard, sessionMiddleware } from "./modules/auth/middleware.ts";
 import { authRoutes } from "./modules/auth/routes.ts";
 import { userRoutes } from "./modules/users/routes.ts";
@@ -33,6 +34,8 @@ export type AppEnv = {
     apiToken?: boolean;
     /** Memoized per request by `modules/instances/access.ts`; `null` = unrestricted (admin). */
     instanceScope?: InstanceScope;
+    /** Memoized per request by `modules/nodes/access.ts`; `null` = every node (admin). */
+    nodeScope?: NodeScope;
   };
 };
 

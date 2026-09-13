@@ -3,6 +3,7 @@ import { AlertTriangle, Server } from "lucide-react";
 import { roleAllows } from "@gsm/shared";
 import { useAuth } from "@/api/auth";
 import { useInstance } from "@/api/instances";
+import { useAllNodes } from "@/api/nodes";
 import { CopyButton } from "@/components/data/copy-button";
 import { ErrorView, PendingView } from "@/components/data/error-view";
 import { InstanceStatusBadge } from "@/components/data/status-badge";
@@ -19,6 +20,8 @@ function InstanceLayout() {
   const instanceId = Number(Route.useParams().instanceId);
   const { admin } = useAuth();
   const q = useInstance(instanceId);
+  // Users who own nodes get a link to them; the list is empty for everyone else.
+  const { data: myNodes = [] } = useAllNodes(!admin);
   if (q.isLoading) return <PendingView />;
   if (q.error) return <ErrorView error={q.error} reset={() => q.refetch()} />;
   const i = q.data!;
@@ -53,7 +56,7 @@ function InstanceLayout() {
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>{i.template.name}</span>
-              {admin && (
+              {(admin || myNodes.some((n) => n.id === i.node.id)) && (
                 <Link
                   to="/nodes/$nodeId"
                   params={{ nodeId: String(i.node.id) }}

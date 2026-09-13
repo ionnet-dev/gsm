@@ -8,7 +8,7 @@ import { LoginChallenge, PasswordReset, RecoveryCode, Session } from "../modules
 import { ApiToken } from "../modules/auth/tokens.ts";
 import { AuditEntry } from "../modules/audit/models.ts";
 import { AgentRelease } from "../modules/releases/models.ts";
-import { EnrollmentToken, Node } from "../modules/nodes/models.ts";
+import { EnrollmentToken, Node, NodeUser } from "../modules/nodes/models.ts";
 import { Template } from "../modules/templates/models.ts";
 import { Backup, Instance, InstancePort, InstanceUser } from "../modules/instances/models.ts";
 import { InstancePlayer } from "../modules/players/models.ts";
@@ -25,6 +25,10 @@ AgentRelease.belongsTo(User, { as: "creator", foreignKey: "createdBy" });
 
 EnrollmentToken.belongsTo(User, { as: "creator", foreignKey: "createdBy" });
 Node.belongsTo(EnrollmentToken, { as: "enrollmentToken", foreignKey: "enrollmentTokenId" });
+Node.hasMany(NodeUser, { as: "owners", foreignKey: "nodeId" });
+NodeUser.belongsTo(Node, { as: "node", foreignKey: "nodeId" });
+NodeUser.belongsTo(User, { as: "user", foreignKey: "userId" });
+User.hasMany(NodeUser, { as: "nodeAccess", foreignKey: "userId" });
 
 Template.belongsTo(User, { as: "creator", foreignKey: "createdBy" });
 
@@ -58,6 +62,7 @@ export {
   InstanceUser,
   LoginChallenge,
   Node,
+  NodeUser,
   PasswordReset,
   RecoveryCode,
   Session,

@@ -11,7 +11,7 @@ import {
 import { useEffect } from "react";
 import { useAuth } from "@/api/auth";
 import { useInstanceSummary } from "@/api/instances";
-import { useNodeSummary } from "@/api/nodes";
+import { useManagesNodes, useNodeSummary } from "@/api/nodes";
 import { useHealth } from "@/api/system";
 import { cn } from "@/lib/utils";
 import { GsmMark } from "./gsm-mark";
@@ -35,19 +35,16 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
   const { admin } = useAuth();
+  const managesNodes = useManagesNodes();
   const { data: instances } = useInstanceSummary();
-  const { data: nodes } = useNodeSummary(admin);
+  const { data: nodes } = useNodeSummary();
   const { data: health } = useHealth();
   const NAV: (NavItem | { section: string })[] = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
     { section: "Servers" },
     { to: "/instances", label: "Instances", icon: Boxes, count: instances?.total },
-    ...(admin
-      ? [
-        { to: "/nodes", label: "Nodes", icon: Server, count: nodes?.total },
-        { to: "/templates", label: "Templates", icon: LayoutTemplate },
-      ]
-      : []),
+    ...(managesNodes ? [{ to: "/nodes", label: "Nodes", icon: Server, count: nodes?.total }] : []),
+    ...(admin ? [{ to: "/templates", label: "Templates", icon: LayoutTemplate }] : []),
     { section: "System" },
     { to: "/settings", label: "Settings", icon: Settings },
   ];

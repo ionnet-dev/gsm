@@ -8,6 +8,7 @@ import type { UiEvent, UiEventData } from "@gsm/shared";
 import { UiClientMessage } from "@gsm/shared";
 import { log } from "../lib/logger.ts";
 import { inScope, type InstanceScope } from "../modules/instances/access.ts";
+import { inNodeScope, type NodeScope } from "../modules/nodes/access.ts";
 
 interface UiClient {
   ws: WSContext;
@@ -15,6 +16,8 @@ interface UiClient {
   admin: boolean;
   /** Fixed at connect time; sockets are closed when the user's access changes. */
   scope: InstanceScope;
+  /** Nodes the user manages, fixed at connect time like `scope`. */
+  nodes: NodeScope;
   /** Instances whose console output this socket wants. */
   consoles: Set<number>;
 }
@@ -24,22 +27,36 @@ export const CLOSE_RECONNECT = 4002;
 
 const wlog = log.child("ws:ui");
 
-/** Does a client get this event? Node events are for admins; instance events follow the scope. */
-function visibleTo(c: UiClient, event: UiEvent, data: Record<string, unknown>): boolean {
+/**
+ * Does a client get this event? Instance events follow the instance scope, node events the node
+ * scope (admins and the node's owners), template events are for admins.
+ */
+export function visibleTo(
+  c: Pick<UiClient, "admin" | "scope" | "nodes" | "consoles">,
+  event: UiEvent,
+  data: Record<string, unknown>,
+): boolean {
   if (typeof data.instanceId === "number") {
     if (!inScope(c.scope, data.instanceId)) return false;
     if (event === "instance.console") return c.consoles.has(data.instanceId);
     return true;
   }
-  if (typeof data.nodeId === "number" || event === "template.updated") return c.admin;
+  if (typeof data.nodeId === "number") return inNodeScope(c.nodes, data.nodeId);
+  if (event === "template.updated") return c.admin;
   return true;
 }
 
 class UiGateway {
   private clients = new Set<UiClient>();
 
-  add(ws: WSContext, userId: number, admin: boolean, scope: InstanceScope): UiClient {
-    const client: UiClient = { ws, userId, admin, scope, consoles: new Set() };
+  add(
+    ws: WSContext,
+    userId: number,
+    admin: boolean,
+    scope: InstanceScope,
+    nodes: NodeScope,
+  ): UiClient {
+    const client: UiClient = { ws, userId, admin, scope, nodes, consoles: new Set() };
     this.clients.add(client);
     wlog.debug("client connected", { userId, clients: this.clients.size });
     return client;

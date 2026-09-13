@@ -140,6 +140,8 @@ class UiSocket {
           break;
         case "node.updated":
           qc.invalidateQueries({ queryKey: nodeKeys.all });
+          // A node's owners are listed on the access tab of every instance on it.
+          qc.invalidateQueries({ queryKey: ["instances", "access"] });
           break;
         case "node.metrics": {
           const d = data as UiEventData<"node.metrics">;

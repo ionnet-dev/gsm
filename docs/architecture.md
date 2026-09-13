@@ -42,7 +42,9 @@ list under Deno). They run automatically at startup when `AUTO_MIGRATE=true`.
 2. `csrfGuard` requires `X-Gsm-Client: web` on every non-GET request except agent endpoints.
 3. Route-level `requireAuth` / `requireRole("admin")` enforce site roles. Instance routes call
    `assertInstancePermission(c, id, permission)` (`modules/instances/access.ts`), which maps the
-   user's per-instance role to what the route needs; users without access get 404.
+   user's per-instance role to what the route needs; users without access get 404. Node routes call
+   `assertNodeAccess(c, id)` (`modules/nodes/access.ts`): admins and the node's owners pass,
+   everyone else gets 404.
 4. Services throw `HttpError`; the app-level `onError` maps it (and zod errors) to
    `{ error: { code, message, details } }`.
 
@@ -107,9 +109,11 @@ the data directory `<dataDir>/instances/<uuid>` (mounted at `/data`) and the con
 - **Reconciliation**: after every `agent.hello` the supervisor (`modules/instances/supervisor.ts`)
   asks `inst.list` and folds the states into the rows, starts instances with `autoStart` that are
   stopped, and marks instances `unknown` when their node goes offline.
-- **Access**: `instance_users` holds `(instance, user, role)`. Admins see everything; users see only
-  their instances (lists, the UI socket, and `myRole` on every DTO). Changing access closes the
-  user's UI sockets so they reconnect with the new scope.
+- **Access**: `instance_users` holds `(instance, user, role)` and `node_users` `(node, user)`: a
+  node's owners manage it and are `owner` of every instance on it. Admins see everything; users see
+  only their instances and nodes (lists, the UI socket, and `myRole` on every DTO). Changing access,
+  or creating an instance on an owned node, closes the user's UI sockets so they reconnect with the
+  new scope.
 
 ## Files and backups
 

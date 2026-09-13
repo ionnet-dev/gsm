@@ -34,13 +34,20 @@ instance access; treat them like passwords (they can be revoked under My account
 ## Roles
 
 - `admin` manages nodes, templates, users, settings and every instance.
-- `user` sees nothing but the instances they were given access to. On each instance their role is
-  `owner` (everything, including sharing and deleting), `operator` (start, stop, console commands,
-  files, backups, settings, player actions) or `viewer` (watch the console, the status and who is
-  online).
+- `user` sees nothing but the instances they were given access to and the nodes an admin made them
+  owner of. On each instance their role is `owner` (everything, including sharing and deleting),
+  `operator` (start, stop, console commands, files, backups, settings, player actions) or `viewer`
+  (watch the console, the status and who is online).
 
-A user's UI socket is closed and reopened when their access changes, so live events never leak
-across a revoked grant. Instances a user cannot see answer 404, so ids cannot be probed.
+An admin can make a user **owner of a node**. A node owner manages that node (name, addresses, port
+pool, images, ping and inventory refresh), creates instances on it and is `owner` of every instance
+on it, including instances created later. Deleting the node, changing its owners, enrollment tokens,
+agent releases and templates stay with admins. Owning a node gives no shell on the machine: it adds
+up to what an instance owner can do (below) on every instance there, plus pulling and removing
+Docker images on it.
+
+A user's UI socket is closed and reopened when their instance or node access changes, so live events
+never leak across a revoked grant. Instances a user cannot see answer 404, so ids cannot be probed.
 
 What access to an instance means in practice:
 

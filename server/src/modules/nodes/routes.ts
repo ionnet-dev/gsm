@@ -8,10 +8,12 @@ import { agentGateway } from "../../ws/agent-gateway.ts";
 import { uiGateway } from "../../ws/ui-gateway.ts";
 import { log } from "../../lib/logger.ts";
 import { auditFrom } from "../audit/service.ts";
-import { currentUser, requireRole } from "../auth/middleware.ts";
+import { currentUser, requireAuth, requireRole } from "../auth/middleware.ts";
+import { assertNodeAccess, nodeScope } from "./access.ts";
 import {
   CreateEnrollmentTokenBody,
   EnrollBody,
+  GrantNodeAccessBody,
   ListNodesQuery,
   UpdateNodeBody,
 } from "./schemas.ts";
@@ -29,28 +31,34 @@ agentRoutes.post("/enroll", async (c) => {
   return c.json(await nodes.enroll(body, ip), 201);
 });
 
-// ---- nodes (admins only: users never see nodes) ----
+// ---- nodes: admins manage every node, users the nodes an admin made them owner of ----
 export const nodeRoutes = new Hono<AppEnv>();
-nodeRoutes.use("*", requireRole("admin"));
+nodeRoutes.use("*", requireAuth);
 
-nodeRoutes.get("/", async (c) => c.json(await nodes.list(parseQuery(c, ListNodesQuery))));
-nodeRoutes.get("/all", async (c) => c.json({ items: await nodes.all() }));
-nodeRoutes.get("/summary", async (c) => c.json(await nodes.summary()));
+nodeRoutes.get(
+  "/",
+  async (c) => c.json(await nodes.list(parseQuery(c, ListNodesQuery), await nodeScope(c))),
+);
+nodeRoutes.get("/all", async (c) => c.json({ items: await nodes.all(await nodeScope(c)) }));
+nodeRoutes.get("/summary", async (c) => c.json(await nodes.summary(await nodeScope(c))));
 
 nodeRoutes.get("/:id", async (c) => {
-  const n = await nodes.get(idParam(c));
+  const id = idParam(c);
+  await assertNodeAccess(c, id);
+  const n = await nodes.get(id);
   return c.json({ node: await nodes.nodeDetailDto(n), connected: agentGateway.isConnected(n.id) });
 });
 
 nodeRoutes.patch("/:id", async (c) => {
   const id = idParam(c);
+  await assertNodeAccess(c, id);
   const body = await parseBody(c, UpdateNodeBody);
   const n = await nodes.update(id, body);
   await auditFrom(c, "node.update", { type: "node", id }, body);
   return c.json({ node: await nodes.nodeDetailDto(n) });
 });
 
-nodeRoutes.delete("/:id", async (c) => {
+nodeRoutes.delete("/:id", requireRole("admin"), async (c) => {
   const id = idParam(c);
   const n = await nodes.get(id);
   await nodes.remove(id);
@@ -61,6 +69,7 @@ nodeRoutes.delete("/:id", async (c) => {
 
 nodeRoutes.post("/:id/ping", async (c) => {
   const id = idParam(c);
+  await assertNodeAccess(c, id);
   const started = performance.now();
   const result = await agentGateway.request(id, "agent.ping", {});
   return c.json({ ...result, rttMs: Math.round(performance.now() - started) });
@@ -68,6 +77,7 @@ nodeRoutes.post("/:id/ping", async (c) => {
 
 nodeRoutes.post("/:id/refresh", async (c) => {
   const id = idParam(c);
+  await assertNodeAccess(c, id);
   const inventory = await agentGateway.request(id, "sys.inventory", {});
   const n = await nodes.get(id);
   n.applyInventory(inventory);
@@ -80,12 +90,14 @@ const ilog = log.child("images");
 
 nodeRoutes.get("/:id/images", async (c) => {
   const id = idParam(c);
+  await assertNodeAccess(c, id);
   return c.json(await agentGateway.request(id, "image.list", {}));
 });
 
 /** Pull in the background; progress and the outcome arrive as `image.pull` events. */
 nodeRoutes.post("/:id/images/pull", async (c) => {
   const id = idParam(c);
+  await assertNodeAccess(c, id);
   const { ref } = await parseBody(c, z.object({ ref: z.string().min(1).max(300) }));
   if (!agentGateway.isConnected(id)) {
     return c.json({ error: { code: "unavailable", message: "The node is not connected" } }, 409);
@@ -117,11 +129,35 @@ nodeRoutes.post("/:id/images/pull", async (c) => {
 
 nodeRoutes.delete("/:id/images", async (c) => {
   const id = idParam(c);
+  await assertNodeAccess(c, id);
   const ref = c.req.query("ref");
   if (!ref) return c.json({ error: { code: "bad_request", message: "ref is required" } }, 400);
   await agentGateway.request(id, "image.remove", { ref }, { timeoutMs: 120_000 });
   await auditFrom(c, "node.image_remove", { type: "node", id }, { ref });
   return c.json({ ok: true });
+});
+
+// ---- owners: anyone who manages the node sees them, only admins change them ----
+nodeRoutes.get("/:id/access", async (c) => {
+  const id = idParam(c);
+  await assertNodeAccess(c, id);
+  return c.json({ items: await nodes.listAccess(id) });
+});
+
+nodeRoutes.put("/:id/access", requireRole("admin"), async (c) => {
+  const id = idParam(c);
+  const body = await parseBody(c, GrantNodeAccessBody);
+  const items = await nodes.grant(id, body.userId, currentUser(c).id);
+  await auditFrom(c, "node.access_grant", { type: "node", id }, body);
+  return c.json({ items });
+});
+
+nodeRoutes.delete("/:id/access/:userId", requireRole("admin"), async (c) => {
+  const id = idParam(c);
+  const userId = idParam(c, "userId");
+  const items = await nodes.revoke(id, userId);
+  await auditFrom(c, "node.access_revoke", { type: "node", id }, { userId });
+  return c.json({ items });
 });
 
 // ---- enrollment tokens (admin) ----

@@ -7,19 +7,25 @@ import { adminReset } from "../auth/two-factor.ts";
 import type { z } from "zod";
 import type { CreateUserBody, UpdateUserBody } from "./schemas.ts";
 
-const withInstanceCount = {
+const withCounts = {
   attributes: {
-    include: [[
-      sequelize.literal(
-        "(SELECT COUNT(*) FROM instance_users iu WHERE iu.user_id = `User`.`id`)",
-      ),
-      "instanceCount",
-    ]] as [ReturnType<typeof sequelize.literal>, string][],
+    include: [
+      [
+        sequelize.literal(
+          "(SELECT COUNT(*) FROM instance_users iu WHERE iu.user_id = `User`.`id`)",
+        ),
+        "instanceCount",
+      ],
+      [
+        sequelize.literal("(SELECT COUNT(*) FROM node_users nu WHERE nu.user_id = `User`.`id`)"),
+        "nodeCount",
+      ],
+    ] as [ReturnType<typeof sequelize.literal>, string][],
   },
 };
 
 export async function list() {
-  const users = await User.findAll({ ...withInstanceCount, order: [["name", "ASC"]] });
+  const users = await User.findAll({ ...withCounts, order: [["name", "ASC"]] });
   return users.map((u) => u.toPublic());
 }
 

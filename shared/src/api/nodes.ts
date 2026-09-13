@@ -31,6 +31,8 @@ export interface NodeDto {
   runningCount: number;
   /** Memory limits of every instance on the node added up (0-limit instances count nothing). */
   allocatedMemoryMb: number;
+  /** Users who own the node (see NodeAccessDto). */
+  owners: { id: number; name: string }[];
 }
 
 export interface NodeDetailDto extends NodeDto {
@@ -47,6 +49,20 @@ export interface NodeSummary {
   online: number;
   offline: number;
 }
+
+/**
+ * A user who owns a node: they manage it (settings, images, new instances) and are owner of every
+ * instance on it. Admins manage every node without an entry.
+ */
+export interface NodeAccessDto {
+  userId: number;
+  name: string;
+  email: string;
+  grantedAt: string;
+}
+
+export const GrantNodeAccessBody = z.object({ userId: z.number().int().positive() });
+export type GrantNodeAccessBody = z.input<typeof GrantNodeAccessBody>;
 
 export interface EnrollmentTokenDto {
   id: number;

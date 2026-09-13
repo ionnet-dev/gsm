@@ -49,6 +49,7 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
 
   toPublic() {
     const count = this.get("instanceCount") as number | string | undefined;
+    const nodes = this.get("nodeCount") as number | string | undefined;
     return {
       id: this.id,
       email: this.email,
@@ -60,6 +61,7 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
       lastLoginAt: this.lastLoginAt?.toISOString() ?? null,
       createdAt: this.createdAt.toISOString(),
       ...(count !== undefined ? { instanceCount: Number(count) } : {}),
+      ...(nodes !== undefined ? { nodeCount: Number(nodes) } : {}),
     };
   }
 }

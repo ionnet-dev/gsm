@@ -4,10 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { NodeDto, TemplateDetailDto, TemplateDto } from "@gsm/shared";
 import { validateVariable } from "@gsm/shared";
-import { authStatusQuery } from "@/api/auth";
 import { errorMessage } from "@/api/client";
 import { useInstanceMutations } from "@/api/instances";
-import { useAllNodes, useNode } from "@/api/nodes";
+import { managesNodes, useAllNodes, useNode } from "@/api/nodes";
 import { useTemplate, useTemplates } from "@/api/templates";
 import { EmptyState } from "@/components/data/empty-state";
 import { Field } from "@/components/data/field";
@@ -33,8 +32,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/instances/new")({
   beforeLoad: async ({ context }) => {
-    const status = await context.queryClient.ensureQueryData(authStatusQuery);
-    if (status.user?.role !== "admin") throw redirect({ to: "/instances" });
+    if (!(await managesNodes(context.queryClient))) throw redirect({ to: "/instances" });
   },
   component: NewInstance,
 });

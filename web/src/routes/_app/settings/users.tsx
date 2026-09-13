@@ -43,7 +43,8 @@ export const Route = createFileRoute("/_app/settings/users")({
 
 const ROLE_HELP: Record<Role, string> = {
   admin: "Everything: nodes, templates, every instance, users and settings",
-  user: "Only the instances shared with them, with the role given per instance",
+  user:
+    "The instances shared with them (with the role given per instance) and the nodes they own, with every instance on them",
 };
 
 function UsersPage() {
@@ -71,6 +72,7 @@ function UsersPage() {
               <TableHead>User</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Instances</TableHead>
+              <TableHead>Nodes</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Last login</TableHead>
               <TableHead className="w-32" />
@@ -108,6 +110,9 @@ function UsersPage() {
                 </TableCell>
                 <TableCell className="font-mono text-xs">
                   {u.role === "admin" ? "all" : u.instanceCount ?? 0}
+                </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {u.role === "admin" ? "all" : u.nodeCount ?? 0}
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">

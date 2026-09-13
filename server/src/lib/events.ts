@@ -11,7 +11,7 @@ export interface GsmEvents {
   /** The agent reported a state for one of its instances (from inst.status or inst.list). */
   "instance.state": { nodeId: number; state: InstanceState };
   "instance.deleted": { instanceId: number; nodeId: number };
-  /** A user's instance access changed (grant, revoke, role, instance deleted). */
+  /** A user's instance or node access changed (grant, revoke, role, instance created/deleted). */
   "access.changed": { userIds: number[] };
 }
 

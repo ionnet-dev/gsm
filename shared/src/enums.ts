@@ -3,7 +3,8 @@ export type NodeStatus = (typeof NODE_STATUSES)[number];
 
 /**
  * Site-wide roles. `admin` manages nodes, templates, users and every instance; `user` only sees
- * the instances they were given access to (see INSTANCE_ROLES).
+ * the instances they were given access to (see INSTANCE_ROLES) and the nodes an admin made them
+ * owner of (with every instance on them).
  */
 export const ROLES = ["admin", "user"] as const;
 export type Role = (typeof ROLES)[number];

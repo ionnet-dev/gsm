@@ -11,6 +11,7 @@ import type { DockerInfo, Inventory, Metrics, NodeStatus } from "@gsm/shared";
 import { DEFAULT_PORT_RANGE, NODE_STATUSES } from "@gsm/shared";
 import { sequelize } from "../../db/sequelize.ts";
 import { ID } from "../../lib/model.ts";
+import type { User } from "../users/models.ts";
 
 export class EnrollmentToken extends Model<
   InferAttributes<EnrollmentToken>,
@@ -159,4 +160,25 @@ Node.init(
     updatedAt: DataTypes.DATE(3),
   },
   { sequelize, tableName: "nodes" },
+);
+
+/**
+ * A user who owns a node outright: they manage it (settings, images, new instances) and are owner
+ * of every instance on it. Only admins hand nodes out.
+ */
+export class NodeUser extends Model<InferAttributes<NodeUser>, InferCreationAttributes<NodeUser>> {
+  declare nodeId: number;
+  declare userId: number;
+  declare grantedBy: ForeignKey<number | null>;
+  declare createdAt: CreationOptional<Date>;
+  declare user?: NonAttribute<User>;
+}
+NodeUser.init(
+  {
+    nodeId: { type: DataTypes.BIGINT, primaryKey: true },
+    userId: { type: DataTypes.BIGINT, primaryKey: true },
+    grantedBy: { type: DataTypes.BIGINT, allowNull: true },
+    createdAt: DataTypes.DATE(3),
+  },
+  { sequelize, tableName: "node_users", updatedAt: false },
 );

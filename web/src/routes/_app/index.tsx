@@ -3,7 +3,7 @@ import { Boxes, Plus, Server } from "lucide-react";
 import type { InstanceStatus } from "@gsm/shared";
 import { useAuth } from "@/api/auth";
 import { useInstances, useInstanceSummary } from "@/api/instances";
-import { useAllNodes, useNodeSummary } from "@/api/nodes";
+import { useAllNodes, useManagesNodes, useNodeSummary } from "@/api/nodes";
 import { CopyButton } from "@/components/data/copy-button";
 import { EmptyState } from "@/components/data/empty-state";
 import { MetricBar } from "@/components/data/metric-bar";
@@ -27,17 +27,18 @@ const TILES: { status: InstanceStatus; label: string; tone: string }[] = [
 
 function Dashboard() {
   const { admin } = useAuth();
+  const managesNodes = useManagesNodes();
   const { data: summary } = useInstanceSummary();
-  const { data: nodes } = useNodeSummary(admin);
+  const { data: nodes } = useNodeSummary();
   const { data: instances } = useInstances({ pageSize: 50, sort: "status", dir: "desc" });
-  const { data: nodeList = [] } = useAllNodes(admin);
+  const { data: nodeList = [] } = useAllNodes(managesNodes);
 
   return (
     <>
       <PageHeader
         title="Dashboard"
         description="Your game servers at a glance."
-        actions={admin && (
+        actions={managesNodes && (
           <Button size="sm" asChild>
             <Link to="/instances/new">
               <Plus /> New instance
@@ -56,7 +57,7 @@ function Dashboard() {
               tone={t.tone}
             />
           ))}
-          {admin && (
+          {managesNodes && (
             <Tile
               label="Nodes online"
               value={nodes ? `${nodes.online} / ${nodes.total}` : undefined}
@@ -65,7 +66,7 @@ function Dashboard() {
           )}
         </div>
 
-        {admin && nodeList.length > 0 && (
+        {managesNodes && nodeList.length > 0 && (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {nodeList.map((n) => {
               const m = n.lastMetrics;
@@ -134,15 +135,19 @@ function Dashboard() {
               title="No instances yet"
               description={admin
                 ? "Enroll a node, then create your first game server."
+                : managesNodes
+                ? "Create your first game server on your node."
                 : "Nobody has shared an instance with you yet."}
               className="border-0"
-              action={admin && (
+              action={managesNodes && (
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" asChild>
-                    <Link to="/settings/enrollment">
-                      <Server /> Add a node
-                    </Link>
-                  </Button>
+                  {admin && (
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to="/settings/enrollment">
+                        <Server /> Add a node
+                      </Link>
+                    </Button>
+                  )}
                   <Button size="sm" asChild>
                     <Link to="/instances/new">
                       <Plus /> New instance

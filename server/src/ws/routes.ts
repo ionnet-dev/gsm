@@ -7,6 +7,7 @@ import { config } from "../config.ts";
 import { clientIp } from "../lib/http.ts";
 import { log } from "../lib/logger.ts";
 import { type InstanceScope, scopeForUser } from "../modules/instances/access.ts";
+import { type NodeScope, nodeScopeForUser } from "../modules/nodes/access.ts";
 import { resolveSession, SESSION_COOKIE } from "../modules/auth/service.ts";
 import * as nodes from "../modules/nodes/service.ts";
 import { agentGateway } from "./agent-gateway.ts";
@@ -19,6 +20,7 @@ export const wsRoutes = new Hono<
       uiUserId: number;
       uiAdmin: boolean;
       uiScope: InstanceScope;
+      uiNodes: NodeScope;
     };
   }
 >();
@@ -69,16 +71,18 @@ wsRoutes.get(
     c.set("uiUserId", resolved.user.id);
     c.set("uiAdmin", resolved.user.role === "admin");
     c.set("uiScope", await scopeForUser(resolved.user));
+    c.set("uiNodes", await nodeScopeForUser(resolved.user));
     await next();
   },
   upgradeWebSocket((c) => {
     const userId = c.get("uiUserId");
     const admin = c.get("uiAdmin");
     const scope = c.get("uiScope");
+    const nodeScope = c.get("uiNodes");
     let client: UiClient | null = null;
     return {
       onOpen: (_evt, ws) => {
-        client = uiGateway.add(ws, userId, admin, scope);
+        client = uiGateway.add(ws, userId, admin, scope, nodeScope);
         ws.send(JSON.stringify({ t: "event", event: "hello", data: { userId } }));
       },
       onMessage: (evt) => {

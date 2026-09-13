@@ -1,14 +1,23 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type QueryClient,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type {
   CreateEnrollmentTokenBody,
   EnrollmentTokenDto,
   ImageInfo,
+  NodeAccessDto,
   NodeDetailDto,
   NodeDto,
   NodeSummary,
   Page,
   UpdateNodeBody,
 } from "@gsm/shared";
+import { authStatusQuery, useAuth } from "./auth";
 import { api, del, get, patch, post } from "./client";
 
 export interface NodeListParams {
@@ -25,6 +34,7 @@ export const nodeKeys = {
   summary: ["nodes", "summary"] as const,
   detail: (id: number) => ["nodes", "detail", id] as const,
   images: (id: number) => ["nodes", "images", id] as const,
+  access: (id: number) => ["nodes", "access", id] as const,
   tokens: ["enrollment-tokens"] as const,
 };
 
@@ -45,12 +55,28 @@ export const useAllNodes = (enabled = true) =>
     enabled,
   });
 
-export const useNodeSummary = (enabled = true) =>
-  useQuery({
-    queryKey: nodeKeys.summary,
-    queryFn: () => get<NodeSummary>("/nodes/summary"),
-    enabled,
-  });
+/** Counts over the nodes the requester manages (every node for admins). */
+export const nodeSummaryQuery = queryOptions({
+  queryKey: nodeKeys.summary,
+  queryFn: () => get<NodeSummary>("/nodes/summary"),
+});
+
+export const useNodeSummary = () => useQuery(nodeSummaryQuery);
+
+/** Admins manage every node; other users the nodes an admin made them owner of. */
+export function useManagesNodes(): boolean {
+  const { admin } = useAuth();
+  const { data } = useNodeSummary();
+  return admin || (data?.total ?? 0) > 0;
+}
+
+/** `useManagesNodes` for route guards. */
+export async function managesNodes(qc: QueryClient): Promise<boolean> {
+  const status = await qc.ensureQueryData(authStatusQuery);
+  if (!status.user) return false;
+  if (status.user.role === "admin") return true;
+  return (await qc.ensureQueryData(nodeSummaryQuery)).total > 0;
+}
 
 export const useNode = (id: number) =>
   useQuery({
@@ -65,6 +91,14 @@ export const useNodeImages = (id: number, enabled = true) =>
     select: (d) => d.images,
     enabled,
     retry: false,
+  });
+
+/** The node's owners: they manage it and own every instance on it. */
+export const useNodeAccess = (id: number) =>
+  useQuery({
+    queryKey: nodeKeys.access(id),
+    queryFn: () => get<{ items: NodeAccessDto[] }>(`/nodes/${id}/access`),
+    select: (d) => d.items,
   });
 
 export function useNodeMutations() {
@@ -96,6 +130,19 @@ export function useNodeMutations() {
       mutationFn: ({ id, ref }: { id: number; ref: string }) =>
         api<{ ok: true }>(`/nodes/${id}/images`, { method: "DELETE", query: { ref } }),
       onSuccess: (_r, v) => qc.invalidateQueries({ queryKey: nodeKeys.images(v.id) }),
+    }),
+    grant: useMutation({
+      mutationFn: ({ id, userId }: { id: number; userId: number }) =>
+        api<{ items: NodeAccessDto[] }>(`/nodes/${id}/access`, {
+          method: "PUT",
+          json: { userId },
+        }),
+      onSuccess: invalidate,
+    }),
+    revoke: useMutation({
+      mutationFn: ({ id, userId }: { id: number; userId: number }) =>
+        del<{ items: NodeAccessDto[] }>(`/nodes/${id}/access/${userId}`),
+      onSuccess: invalidate,
     }),
   };
 }

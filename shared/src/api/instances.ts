@@ -40,7 +40,7 @@ export interface InstanceDto {
   lastStats: InstanceStats | null;
   createdAt: string;
   updatedAt: string;
-  /** The requester's role on it; "owner" for admins. */
+  /** The requester's role on it; "owner" for admins and the node's owners. */
   myRole: InstanceRole;
   /** `<publicAddress>:<primary port>` for players. */
   address: string | null;
@@ -62,6 +62,8 @@ export interface InstanceAccessDto {
   email: string;
   role: InstanceRole;
   grantedAt: string;
+  /** `node`: the user owns the instance's node, which makes them owner here; changed on the node. */
+  via: "instance" | "node";
 }
 
 export interface InstanceSummary {
@@ -104,7 +106,7 @@ export const CreateInstanceBody = z.object({
   autoStart: z.boolean().default(false),
   /** Run the install straight away (default) or leave the instance uninstalled. */
   install: z.boolean().default(true),
-  /** Give the creator the owner role (admins creating for someone else may skip it). */
+  /** Also make this user an owner of the instance (the node's owners already are). */
   ownerUserId: z.number().int().positive().nullable().default(null),
 });
 export type CreateInstanceBody = z.input<typeof CreateInstanceBody>;
@@ -133,7 +135,7 @@ export const GrantAccessBody = z.object({
   role: z.enum(INSTANCE_ROLES),
 });
 
-/** Which instance roles may do what; admins may do everything. */
+/** Which instance roles may do what; admins may do everything, node owners are `owner`. */
 export const INSTANCE_PERMISSIONS = {
   view: ["owner", "operator", "viewer"],
   console: ["owner", "operator", "viewer"],

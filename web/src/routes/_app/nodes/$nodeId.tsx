@@ -1,12 +1,13 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
-import { Download, Loader2, Radio, RefreshCw, Trash2 } from "lucide-react";
+import { Download, Loader2, Plus, Radio, RefreshCw, Trash2, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NodeDetailDto, PullProgress } from "@gsm/shared";
-import { authStatusQuery } from "@/api/auth";
+import { useAuth } from "@/api/auth";
 import { errorMessage } from "@/api/client";
 import { useInstances } from "@/api/instances";
-import { useNode, useNodeImages, useNodeMutations } from "@/api/nodes";
+import { managesNodes, useNode, useNodeAccess, useNodeImages, useNodeMutations } from "@/api/nodes";
+import { useUserDirectory } from "@/api/users";
 import { ConfirmDialog } from "@/components/data/confirm-dialog";
 import { CopyButton } from "@/components/data/copy-button";
 import { EmptyState } from "@/components/data/empty-state";
@@ -18,7 +19,23 @@ import { StatusDot } from "@/components/data/status-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -34,8 +51,7 @@ import { uiSocket } from "@/ws/ui-socket";
 
 export const Route = createFileRoute("/_app/nodes/$nodeId")({
   beforeLoad: async ({ context }) => {
-    const status = await context.queryClient.ensureQueryData(authStatusQuery);
-    if (status.user?.role !== "admin") throw redirect({ to: "/" });
+    if (!(await managesNodes(context.queryClient))) throw redirect({ to: "/" });
   },
   component: NodePage,
   errorComponent: ({ error, reset }) => <ErrorView error={error} reset={reset} />,
@@ -100,6 +116,7 @@ function NodePage() {
             <TabsTrigger value="instances">Instances</TabsTrigger>
             <TabsTrigger value="ports">Ports</TabsTrigger>
             <TabsTrigger value="images">Images</TabsTrigger>
+            <TabsTrigger value="owners">Owners</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
           <TabsContent value="overview">
@@ -113,6 +130,9 @@ function NodePage() {
           </TabsContent>
           <TabsContent value="images">
             <Images node={n} />
+          </TabsContent>
+          <TabsContent value="owners">
+            <Owners nodeId={n.id} />
           </TabsContent>
           <TabsContent value="settings">
             <NodeSettings node={n} />
@@ -463,6 +483,7 @@ function Images({ node: n }: { node: NodeDetailDto }) {
 function NodeSettings({ node: n }: { node: NodeDetailDto }) {
   const nm = useNodeMutations();
   const navigate = useNavigate();
+  const { admin } = useAuth();
   const [name, setName] = useState(n.name);
   const [publicAddress, setPublicAddress] = useState(n.publicAddress);
   const [bindAddress, setBindAddress] = useState(n.bindAddress);
@@ -552,28 +573,174 @@ function NodeSettings({ node: n }: { node: NodeDetailDto }) {
           </Button>
         </CardContent>
       </Card>
-      <Card className="border-status-critical/40">
-        <CardHeader>
-          <CardTitle className="text-status-critical">Danger zone</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs text-muted-foreground">
-            Removes the node from the panel. Refused while it hosts instances; the agent on the
-            machine keeps running until you uninstall it.
-          </div>
-          <ConfirmDialog
-            trigger={<Button variant="destructive" size="sm">Delete node</Button>}
-            title={`Delete ${n.name}?`}
-            description="The agent's credentials stop working. Re-enrolling the same machine re-creates it."
-            confirmLabel="Delete"
-            onConfirm={() =>
-              nm.remove.mutate(n.id, {
-                onSuccess: () => navigate({ to: "/nodes" }),
+      {admin && (
+        <Card className="border-status-critical/40">
+          <CardHeader>
+            <CardTitle className="text-status-critical">Danger zone</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs text-muted-foreground">
+              Removes the node from the panel. Refused while it hosts instances; the agent on the
+              machine keeps running until you uninstall it.
+            </div>
+            <ConfirmDialog
+              trigger={<Button variant="destructive" size="sm">Delete node</Button>}
+              title={`Delete ${n.name}?`}
+              description="The agent's credentials stop working. Re-enrolling the same machine re-creates it."
+              confirmLabel="Delete"
+              onConfirm={() =>
+                nm.remove.mutate(n.id, {
+                  onSuccess: () => navigate({ to: "/nodes" }),
+                  onError: err,
+                })}
+            />
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function Owners({ nodeId }: { nodeId: number }) {
+  const { admin, user: me } = useAuth();
+  const { data: owners = [] } = useNodeAccess(nodeId);
+  const nm = useNodeMutations();
+  const err = (e: Error) => toast.error(errorMessage(e));
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="max-w-2xl text-xs text-muted-foreground">
+          Owners manage this node (settings, images, new instances) and are owner of every instance
+          on it, including instances created later. Only administrators add or remove owners.
+        </div>
+        {admin && (
+          <AddOwnerDialog
+            exclude={owners.map((o) => o.userId)}
+            busy={nm.grant.isPending}
+            onAdd={(userId) =>
+              nm.grant.mutate({ id: nodeId, userId }, {
+                onSuccess: () => toast.success("Owner added"),
                 onError: err,
               })}
           />
-        </CardContent>
-      </Card>
+        )}
+      </div>
+      <div className="rounded-lg border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>User</TableHead>
+              <TableHead>Added</TableHead>
+              {admin && <TableHead className="w-12" />}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {owners.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={admin ? 3 : 2} className="p-0">
+                  <EmptyState
+                    icon={Users}
+                    title="No owners"
+                    description="Only administrators manage this node."
+                    className="border-0"
+                  />
+                </TableCell>
+              </TableRow>
+            )}
+            {owners.map((o) => (
+              <TableRow key={o.userId}>
+                <TableCell>
+                  <div className="font-medium">
+                    {o.name}{" "}
+                    {o.userId === me?.id && (
+                      <span className="text-xs text-muted-foreground">(you)</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{o.email}</div>
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {formatRelative(o.grantedAt)}
+                </TableCell>
+                {admin && (
+                  <TableCell>
+                    <ConfirmDialog
+                      trigger={
+                        <Button variant="ghost" size="icon-sm" aria-label="Remove owner">
+                          <Trash2 />
+                        </Button>
+                      }
+                      title={`Remove ${o.name} as owner?`}
+                      description="They lose this node and its instances, except instances shared with them directly."
+                      confirmLabel="Remove"
+                      onConfirm={() =>
+                        nm.revoke.mutate({ id: nodeId, userId: o.userId }, { onError: err })}
+                    />
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
+  );
+}
+
+function AddOwnerDialog(
+  { exclude, busy, onAdd }: {
+    exclude: number[];
+    busy: boolean;
+    onAdd: (userId: number) => void;
+  },
+) {
+  const [open, setOpen] = useState(false);
+  const [userId, setUserId] = useState("");
+  const { data: users = [] } = useUserDirectory(open);
+  const candidates = users.filter((u) => !exclude.includes(u.id) && u.role !== "admin");
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Plus /> Add owner
+        </Button>
+      </DialogTrigger>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Add an owner</DialogTitle>
+          <DialogDescription>
+            They get full access to this node and every instance on it. Administrators already have
+            it.
+          </DialogDescription>
+        </DialogHeader>
+        <Field label="User">
+          <Select value={userId} onValueChange={setUserId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Pick a user" />
+            </SelectTrigger>
+            <SelectContent>
+              {candidates.length === 0 && (
+                <SelectItem value="none" disabled>No other users</SelectItem>
+              )}
+              {candidates.map((u) => (
+                <SelectItem key={u.id} value={String(u.id)}>{u.name} · {u.email}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            disabled={!userId || userId === "none" || busy}
+            onClick={() => {
+              onAdd(Number(userId));
+              setOpen(false);
+              setUserId("");
+            }}
+          >
+            Add
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -14,6 +14,8 @@ export interface PublicUser {
   createdAt: string;
   /** Only on the administrator's user list: how many instances the user has access to. */
   instanceCount?: number;
+  /** Only on the administrator's user list: how many nodes the user owns. */
+  nodeCount?: number;
 }
 
 export interface AuthStatus {

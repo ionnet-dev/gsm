@@ -1,12 +1,13 @@
 /**
- * Nodes: enrollment, agent authentication, presence and the node-level facts the agent reports.
- * Instances on a node live in modules/instances; this module only counts them.
+ * Nodes: enrollment, agent authentication, presence, the node-level facts the agent reports and
+ * who owns each node. Instances on a node live in modules/instances; this module only counts them.
  */
 import { Op, type WhereOptions } from "sequelize";
 import type {
   AgentConfigureParams,
   Hello,
   Metrics,
+  NodeAccessDto,
   NodeDetailDto,
   NodeDto,
   NodeStatus,
@@ -14,7 +15,7 @@ import type {
 } from "@gsm/shared";
 import { PROTOCOL_VERSION } from "@gsm/shared";
 import type { z } from "zod";
-import { EnrollmentToken, Instance, InstancePort, Node } from "../../db/models.ts";
+import { EnrollmentToken, Instance, InstancePort, Node, NodeUser, User } from "../../db/models.ts";
 import { sequelize } from "../../db/sequelize.ts";
 import { badRequest, conflict, notFound, unauthorized } from "../../lib/errors.ts";
 import { events } from "../../lib/events.ts";
@@ -24,6 +25,7 @@ import { uiGateway } from "../../ws/ui-gateway.ts";
 import { agentGateway } from "../../ws/agent-gateway.ts";
 import * as audit from "../audit/service.ts";
 import { getRegistryAuth } from "../settings/service.ts";
+import { nodeOwnerIds, type NodeScope } from "./access.ts";
 import type {
   CreateEnrollmentTokenBody,
   EnrollBody,
@@ -61,7 +63,31 @@ async function countsFor(ids: number[]): Promise<Map<number, Counts>> {
   return out;
 }
 
-export function nodeDto(n: Node, counts?: Counts): NodeDto {
+type Owners = NodeDto["owners"];
+
+async function ownersFor(ids: number[]): Promise<Map<number, Owners>> {
+  const out = new Map<number, Owners>();
+  if (!ids.length) return out;
+  const rows = await NodeUser.findAll({
+    where: { nodeId: { [Op.in]: ids } },
+    include: [{ model: User, as: "user", attributes: ["id", "name"] }],
+    order: [["createdAt", "ASC"]],
+  });
+  for (const r of rows) {
+    const list = out.get(r.nodeId) ?? [];
+    list.push({ id: r.userId, name: r.user?.name ?? "" });
+    out.set(r.nodeId, list);
+  }
+  return out;
+}
+
+async function dtosFor(rows: Node[]): Promise<NodeDto[]> {
+  const ids = rows.map((r) => r.id);
+  const [counts, owners] = await Promise.all([countsFor(ids), ownersFor(ids)]);
+  return rows.map((n) => nodeDto(n, counts.get(n.id), owners.get(n.id)));
+}
+
+export function nodeDto(n: Node, counts?: Counts, owners: Owners = []): NodeDto {
   return {
     id: n.id,
     name: n.name,
@@ -85,6 +111,7 @@ export function nodeDto(n: Node, counts?: Counts): NodeDto {
     instanceCount: counts?.instances ?? 0,
     runningCount: counts?.running ?? 0,
     allocatedMemoryMb: counts?.allocatedMemoryMb ?? 0,
+    owners,
   };
 }
 
@@ -98,13 +125,12 @@ export function publicAddressOf(n: Node): string {
 }
 
 export async function nodeDetailDto(n: Node): Promise<NodeDetailDto> {
-  const counts = (await countsFor([n.id])).get(n.id);
-  const ports = await InstancePort.findAll({
-    where: { nodeId: n.id },
-    order: [["port", "ASC"]],
-  });
+  const [[dto], ports] = await Promise.all([
+    dtosFor([n]),
+    InstancePort.findAll({ where: { nodeId: n.id }, order: [["port", "ASC"]] }),
+  ]);
   return {
-    ...nodeDto(n, counts),
+    ...dto,
     inventory: n.inventory,
     machineId: n.machineId,
     protocolVersion: n.protocolVersion,
@@ -331,9 +357,15 @@ export async function setStatus(nodeId: number, status: NodeStatus): Promise<voi
 // CRUD
 // ---------------------------------------------------------------------------
 
-export async function list(q: z.infer<typeof ListNodesQuery>) {
+/** Restricts a query to the nodes in scope (null: every node). */
+function scopeWhere(scope: NodeScope): WhereOptions<Node> {
+  return scope ? { id: { [Op.in]: [...scope] } } : {};
+}
+
+export async function list(q: z.infer<typeof ListNodesQuery>, scope: NodeScope) {
   const where: WhereOptions<Node> = {};
   if (q.status) where.status = q.status;
+  Object.assign(where, scopeWhere(scope));
   if (q.q) {
     const like = `%${q.q}%`;
     Object.assign(where, {
@@ -350,25 +382,23 @@ export async function list(q: z.infer<typeof ListNodesQuery>) {
     limit: q.pageSize,
     offset: (q.page - 1) * q.pageSize,
   });
-  const counts = await countsFor(rows.map((r) => r.id));
   return {
-    items: rows.map((n) => nodeDto(n, counts.get(n.id))),
+    items: await dtosFor(rows),
     total: count,
     page: q.page,
     pageSize: q.pageSize,
   };
 }
 
-/** Every node, for pickers. */
-export async function all(): Promise<NodeDto[]> {
-  const rows = await Node.findAll({ order: [["name", "ASC"]] });
-  const counts = await countsFor(rows.map((r) => r.id));
-  return rows.map((n) => nodeDto(n, counts.get(n.id)));
+/** Every node in scope, for pickers. */
+export async function all(scope: NodeScope): Promise<NodeDto[]> {
+  return dtosFor(await Node.findAll({ where: scopeWhere(scope), order: [["name", "ASC"]] }));
 }
 
-export async function summary(): Promise<NodeSummary> {
+export async function summary(scope: NodeScope): Promise<NodeSummary> {
   const rows = (await Node.findAll({
     attributes: ["status", [sequelize.fn("COUNT", sequelize.col("id")), "count"]],
+    where: scopeWhere(scope),
     group: ["status"],
     raw: true,
   })) as unknown as { status: NodeStatus; count: number }[];
@@ -411,7 +441,56 @@ export async function remove(id: number): Promise<void> {
   if (instances) {
     throw conflict(`${n.name} still hosts ${instances} instance(s); delete or move them first`);
   }
+  const owners = await nodeOwnerIds(id);
   await n.destroy();
   events.emit("node.deleted", { nodeId: id });
   uiGateway.broadcast("node.updated", { nodeId: id });
+  if (owners.length) {
+    events.emit("access.changed", { userIds: owners });
+    for (const u of owners) uiGateway.reconnectUser(u);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Owners
+// ---------------------------------------------------------------------------
+
+export async function listAccess(nodeId: number): Promise<NodeAccessDto[]> {
+  const rows = await NodeUser.findAll({
+    where: { nodeId },
+    include: [{ model: User, as: "user", attributes: ["id", "name", "email"] }],
+    order: [["createdAt", "ASC"]],
+  });
+  return rows.map((r) => ({
+    userId: r.userId,
+    name: r.user?.name ?? "",
+    email: r.user?.email ?? "",
+    grantedAt: r.createdAt.toISOString(),
+  }));
+}
+
+/** Make a user owner of the node, and so of every instance on it. */
+export async function grant(nodeId: number, userId: number, actorId: number) {
+  await get(nodeId);
+  if (!(await User.findByPk(userId))) throw badRequest("Unknown user");
+  await NodeUser.findOrCreate({
+    where: { nodeId, userId },
+    defaults: { nodeId, userId, grantedBy: actorId },
+  });
+  ownersChanged(nodeId, userId);
+  return await listAccess(nodeId);
+}
+
+export async function revoke(nodeId: number, userId: number) {
+  const removed = await NodeUser.destroy({ where: { nodeId, userId } });
+  if (!removed) throw notFound("Owner");
+  ownersChanged(nodeId, userId);
+  return await listAccess(nodeId);
+}
+
+/** The user's scope changed (the node and all its instances); admins' node views refetch. */
+function ownersChanged(nodeId: number, userId: number) {
+  events.emit("access.changed", { userIds: [userId] });
+  uiGateway.reconnectUser(userId);
+  uiGateway.broadcast("node.updated", { nodeId });
 }

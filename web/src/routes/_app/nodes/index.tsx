@@ -1,8 +1,8 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { Plus, Search, Server } from "lucide-react";
 import { z } from "zod";
-import { authStatusQuery } from "@/api/auth";
-import { useNodes } from "@/api/nodes";
+import { useAuth } from "@/api/auth";
+import { managesNodes, useNodes } from "@/api/nodes";
 import { EmptyState } from "@/components/data/empty-state";
 import { MetricBar } from "@/components/data/metric-bar";
 import { Pagination } from "@/components/data/pagination";
@@ -36,14 +36,14 @@ const Search_ = z.object({
 export const Route = createFileRoute("/_app/nodes/")({
   validateSearch: Search_,
   beforeLoad: async ({ context }) => {
-    const status = await context.queryClient.ensureQueryData(authStatusQuery);
-    if (status.user?.role !== "admin") throw redirect({ to: "/" });
+    if (!(await managesNodes(context.queryClient))) throw redirect({ to: "/" });
   },
   component: NodesPage,
 });
 
 function NodesPage() {
   const search = Route.useSearch();
+  const { admin } = useAuth();
   const navigate = useNavigate({ from: "/nodes/" });
   const { data } = useNodes({ ...search, pageSize: 50 });
   const set = (patch: Partial<z.infer<typeof Search_>>) =>
@@ -52,14 +52,16 @@ function NodesPage() {
     <>
       <PageHeader
         title="Nodes"
-        description="Machines running the agent and hosting instances."
-        actions={
+        description={admin
+          ? "Machines running the agent and hosting instances."
+          : "The machines you own, with every instance on them."}
+        actions={admin && (
           <Button size="sm" asChild>
             <Link to="/settings/enrollment">
               <Plus /> Add node
             </Link>
           </Button>
-        }
+        )}
       />
       <div className="grid gap-3 p-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-2">
@@ -96,6 +98,7 @@ function NodesPage() {
                 <TableHead>OS</TableHead>
                 <TableHead>Agent</TableHead>
                 <TableHead>Instances</TableHead>
+                {admin && <TableHead>Owners</TableHead>}
                 <TableHead>CPU</TableHead>
                 <TableHead>Memory</TableHead>
                 <TableHead>Data</TableHead>
@@ -105,17 +108,17 @@ function NodesPage() {
             <TableBody>
               {data?.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="p-0">
+                  <TableCell colSpan={admin ? 10 : 9} className="p-0">
                     <EmptyState
                       icon={Server}
                       title="No nodes"
                       description="Create an enrollment token and run the install script on a machine."
                       className="border-0"
-                      action={
+                      action={admin && (
                         <Button size="sm" asChild>
                           <Link to="/settings/enrollment">Add node</Link>
                         </Button>
-                      }
+                      )}
                     />
                   </TableCell>
                 </TableRow>
@@ -145,6 +148,13 @@ function NodesPage() {
                     <TableCell className="font-mono text-xs">
                       {n.runningCount} / {n.instanceCount}
                     </TableCell>
+                    {admin && (
+                      <TableCell className="text-xs">
+                        {n.owners.length
+                          ? n.owners.map((o) => o.name).join(", ")
+                          : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <MetricBar value={m?.cpuPct} />
                     </TableCell>

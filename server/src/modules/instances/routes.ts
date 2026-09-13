@@ -12,11 +12,12 @@ import {
 import type { AppEnv } from "../../app.ts";
 import { idParam, parseBody, parseQuery } from "../../lib/http.ts";
 import { auditFrom } from "../audit/service.ts";
-import { currentUser, requireAuth, requireRole } from "../auth/middleware.ts";
+import { currentUser, requireAuth } from "../auth/middleware.ts";
 import { instanceBackupRoutes } from "../backups/routes.ts";
 import { instanceFileRoutes } from "../files/routes.ts";
 import { instancePlayerRoutes } from "../players/routes.ts";
-import { assertInstancePermission, instanceScope, roleOn } from "./access.ts";
+import { assertNodeAccess } from "../nodes/access.ts";
+import { assertInstancePermission, instanceScope, roleIn } from "./access.ts";
 import * as instances from "./service.ts";
 
 export const instanceRoutes = new Hono<AppEnv>();
@@ -28,11 +29,9 @@ instanceRoutes.route("/:id/players", instancePlayerRoutes);
 
 instanceRoutes.get("/", async (c) => {
   const q = parseQuery(c, ListInstancesQuery);
-  const user = currentUser(c);
-  const page = await instances.list(q, await instanceScope(c));
-  const items = await Promise.all(
-    page.rows.map(async (i) => instances.instanceDto(i, (await roleOn(user, i.id)) ?? "viewer")),
-  );
+  const scope = await instanceScope(c);
+  const page = await instances.list(q, scope);
+  const items = page.rows.map((i) => instances.instanceDto(i, roleIn(scope, i.id) ?? "viewer"));
   return c.json({ items, total: page.total, page: page.page, pageSize: page.pageSize });
 });
 
@@ -41,8 +40,10 @@ instanceRoutes.get(
   async (c) => c.json(await instances.summary(await instanceScope(c))),
 );
 
-instanceRoutes.post("/", requireRole("admin"), async (c) => {
+/** Admins create instances on any node, node owners on the nodes they own. */
+instanceRoutes.post("/", async (c) => {
   const body = await parseBody(c, CreateInstanceBody);
+  await assertNodeAccess(c, body.nodeId);
   const i = await instances.create(body, currentUser(c));
   await auditFrom(c, "instance.create", { type: "instance", id: i.id }, {
     name: i.name,

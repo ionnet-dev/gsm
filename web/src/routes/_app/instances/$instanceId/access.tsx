@@ -61,10 +61,10 @@ function AccessTab() {
         <div className="text-xs text-muted-foreground">
           {Object.entries(ROLE_HELP).map(([r, h]) => (
             <div key={r}>
-              <span className="font-medium capitalize text-foreground">{r}</span> —{" "}
-              {h}. Administrators always have full access.
+              <span className="font-medium capitalize text-foreground">{r}</span> — {h}.
             </div>
           ))}
+          <div>Administrators and the owners of the instance's node always have full access.</div>
         </div>
         <GrantDialog
           exclude={items.map((a) => a.userId)}
@@ -100,7 +100,7 @@ function AccessTab() {
               </TableRow>
             )}
             {items.map((a) => (
-              <TableRow key={a.userId}>
+              <TableRow key={`${a.via}:${a.userId}`}>
                 <TableCell>
                   <div className="font-medium">
                     {a.name}{" "}
@@ -111,32 +111,41 @@ function AccessTab() {
                   <div className="text-xs text-muted-foreground">{a.email}</div>
                 </TableCell>
                 <TableCell>
-                  <Select
-                    value={a.role}
-                    disabled={a.userId === me?.id}
-                    onValueChange={(role) =>
-                      grant.mutate(
-                        { id: instanceId, userId: a.userId, role: role as InstanceRole },
-                        {
-                          onError: err,
-                        },
-                      )}
-                  >
-                    <SelectTrigger className="h-7 w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INSTANCE_ROLES.map((r) => (
-                        <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {a.via === "node"
+                    ? (
+                      <div className="text-xs">
+                        <span className="font-medium">Owner</span>{" "}
+                        <span className="text-muted-foreground">· owns the node</span>
+                      </div>
+                    )
+                    : (
+                      <Select
+                        value={a.role}
+                        disabled={a.userId === me?.id}
+                        onValueChange={(role) =>
+                          grant.mutate(
+                            { id: instanceId, userId: a.userId, role: role as InstanceRole },
+                            {
+                              onError: err,
+                            },
+                          )}
+                      >
+                        <SelectTrigger className="h-7 w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INSTANCE_ROLES.map((r) => (
+                            <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {formatRelative(a.grantedAt)}
                 </TableCell>
                 <TableCell>
-                  {a.userId !== me?.id && (
+                  {a.via === "instance" && a.userId !== me?.id && (
                     <ConfirmDialog
                       trigger={
                         <Button variant="ghost" size="icon-sm" aria-label="Revoke">
@@ -181,7 +190,9 @@ function GrantDialog(
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Share this instance</DialogTitle>
-          <DialogDescription>Administrators already see every instance.</DialogDescription>
+          <DialogDescription>
+            Administrators and the node's owners already have full access.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <Field label="User">

@@ -2,9 +2,8 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Boxes, Plus, Search } from "lucide-react";
 import { z } from "zod";
 import { INSTANCE_STATUSES, type InstanceStatus } from "@gsm/shared";
-import { useAuth } from "@/api/auth";
 import { useInstances } from "@/api/instances";
-import { useAllNodes } from "@/api/nodes";
+import { useAllNodes, useManagesNodes } from "@/api/nodes";
 import { useTemplates } from "@/api/templates";
 import { CopyButton } from "@/components/data/copy-button";
 import { EmptyState } from "@/components/data/empty-state";
@@ -52,9 +51,9 @@ const PAGE_SIZE = 50;
 function InstancesPage() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/instances/" });
-  const { admin } = useAuth();
+  const managesNodes = useManagesNodes();
   const { data } = useInstances({ ...search, pageSize: PAGE_SIZE });
-  const { data: nodes = [] } = useAllNodes(admin);
+  const { data: nodes = [] } = useAllNodes(managesNodes);
   const { data: templates = [] } = useTemplates();
   const set = (patch: Partial<z.infer<typeof Search_>>) =>
     navigate({ search: (prev) => ({ ...prev, page: undefined, ...patch }) });
@@ -64,7 +63,7 @@ function InstancesPage() {
       <PageHeader
         title="Instances"
         description={data ? `${data.total} game server${data.total === 1 ? "" : "s"}` : undefined}
-        actions={admin && (
+        actions={managesNodes && (
           <Button size="sm" asChild>
             <Link to="/instances/new">
               <Plus /> New instance
@@ -97,7 +96,7 @@ function InstancesPage() {
               ))}
             </SelectContent>
           </Select>
-          {admin && (
+          {managesNodes && (
             <Select
               value={search.nodeId ? String(search.nodeId) : "all"}
               onValueChange={(v) => set({ nodeId: v === "all" ? undefined : Number(v) })}
@@ -136,7 +135,7 @@ function InstancesPage() {
                 <TableHead className="w-6" />
                 <TableHead>Name</TableHead>
                 <TableHead>Status</TableHead>
-                {admin && <TableHead>Node</TableHead>}
+                {managesNodes && <TableHead>Node</TableHead>}
                 <TableHead>Address</TableHead>
                 <TableHead>CPU</TableHead>
                 <TableHead>Memory</TableHead>
@@ -146,13 +145,13 @@ function InstancesPage() {
             <TableBody>
               {data?.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={admin ? 8 : 7} className="p-0">
+                  <TableCell colSpan={managesNodes ? 8 : 7} className="p-0">
                     <EmptyState
                       icon={Boxes}
                       title="No instances"
                       description={search.q || search.status
                         ? "Nothing matches these filters."
-                        : admin
+                        : managesNodes
                         ? "Create your first game server."
                         : "Nobody has shared an instance with you yet."}
                       className="border-0"
@@ -189,15 +188,19 @@ function InstancesPage() {
                         </div>
                       )}
                     </TableCell>
-                    {admin && (
+                    {managesNodes && (
                       <TableCell className="text-xs">
-                        <Link
-                          to="/nodes/$nodeId"
-                          params={{ nodeId: String(i.node.id) }}
-                          className="hover:underline"
-                        >
-                          {i.node.name}
-                        </Link>
+                        {nodes.some((n) => n.id === i.node.id)
+                          ? (
+                            <Link
+                              to="/nodes/$nodeId"
+                              params={{ nodeId: String(i.node.id) }}
+                              className="hover:underline"
+                            >
+                              {i.node.name}
+                            </Link>
+                          )
+                          : i.node.name}
                       </TableCell>
                     )}
                     <TableCell className="font-mono text-xs">

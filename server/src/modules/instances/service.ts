@@ -6,6 +6,7 @@
 import { Op, type Order, type WhereOptions } from "sequelize";
 import type {
   CreateInstanceBody,
+  InstanceAccessDto,
   InstanceDetailDto,
   InstanceDto,
   InstanceRole,
@@ -18,7 +19,15 @@ import type {
 } from "@gsm/shared";
 import { INSTANCE_STATUSES, POWER_ALLOWED, RPC_ERROR_CODES, validateVariable } from "@gsm/shared";
 import type { z } from "zod";
-import { Instance, InstancePort, InstanceUser, Node, Template, User } from "../../db/models.ts";
+import {
+  Instance,
+  InstancePort,
+  InstanceUser,
+  Node,
+  NodeUser,
+  Template,
+  User,
+} from "../../db/models.ts";
 import { sequelize } from "../../db/sequelize.ts";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.ts";
 import { events } from "../../lib/events.ts";
@@ -26,6 +35,7 @@ import { log } from "../../lib/logger.ts";
 import { agentGateway, AgentRpcError } from "../../ws/agent-gateway.ts";
 import { uiGateway } from "../../ws/ui-gateway.ts";
 import * as audit from "../audit/service.ts";
+import { nodeOwnerIds } from "../nodes/access.ts";
 import { publicAddressOf } from "../nodes/service.ts";
 import * as players from "../players/service.ts";
 import { getGeneral } from "../settings/service.ts";
@@ -122,7 +132,7 @@ export async function get(id: number): Promise<Instance> {
 
 /** The instance ids a user may see (scope), as a where clause fragment. */
 function scopeWhere(scope: InstanceScope): WhereOptions<Instance> {
-  return scope ? { id: { [Op.in]: [...scope] } } : {};
+  return scope ? { id: { [Op.in]: [...scope.keys()] } } : {};
 }
 
 export async function list(q: z.infer<typeof ListInstancesQuery>, scope: InstanceScope) {
@@ -269,7 +279,7 @@ export async function create(
         { transaction },
       );
     }
-    const ownerId = input.ownerUserId ?? (actor.role === "admin" ? null : actor.id);
+    const ownerId = input.ownerUserId;
     if (ownerId) {
       if (!(await User.findByPk(ownerId, { transaction }))) throw badRequest("Unknown owner");
       await InstanceUser.create(
@@ -281,10 +291,12 @@ export async function create(
   });
 
   ilog.info("instance created", { id: instance.id, name: instance.name, node: node.id });
-  const ownerId = input.ownerUserId ?? (actor.role === "admin" ? null : actor.id);
-  if (ownerId) {
-    events.emit("access.changed", { userIds: [ownerId] });
-    uiGateway.reconnectUser(ownerId);
+  // The node's owners own the new instance too; their sockets pick it up on reconnect.
+  const gained = new Set(await nodeOwnerIds(node.id));
+  if (input.ownerUserId) gained.add(input.ownerUserId);
+  if (gained.size) {
+    events.emit("access.changed", { userIds: [...gained] });
+    for (const u of gained) uiGateway.reconnectUser(u);
   }
   uiGateway.broadcast("instance.updated", { instanceId: instance.id });
   if (input.install) {
@@ -555,19 +567,36 @@ export async function stats(id: number) {
 // Access
 // ---------------------------------------------------------------------------
 
-export async function listAccess(id: number) {
-  const rows = await InstanceUser.findAll({
-    where: { instanceId: id },
+/** The node's owners (owner through the node), then the users the instance was shared with. */
+export async function listAccess(id: number): Promise<InstanceAccessDto[]> {
+  const i = await Instance.findByPk(id, { attributes: ["id", "nodeId"] });
+  if (!i) throw notFound("Instance");
+  const withUser = {
     include: [{ model: User, as: "user", attributes: ["id", "name", "email"] }],
-    order: [["createdAt", "ASC"]],
-  });
-  return rows.map((r) => ({
-    userId: r.userId,
-    name: r.user?.name ?? "",
-    email: r.user?.email ?? "",
-    role: r.role,
-    grantedAt: r.createdAt.toISOString(),
-  }));
+    order: [["createdAt", "ASC"]] as Order,
+  };
+  const [owners, grants] = await Promise.all([
+    NodeUser.findAll({ where: { nodeId: i.nodeId }, ...withUser }),
+    InstanceUser.findAll({ where: { instanceId: id }, ...withUser }),
+  ]);
+  return [
+    ...owners.map((r) => ({
+      userId: r.userId,
+      name: r.user?.name ?? "",
+      email: r.user?.email ?? "",
+      role: "owner" as const,
+      grantedAt: r.createdAt.toISOString(),
+      via: "node" as const,
+    })),
+    ...grants.map((r) => ({
+      userId: r.userId,
+      name: r.user?.name ?? "",
+      email: r.user?.email ?? "",
+      role: r.role,
+      grantedAt: r.createdAt.toISOString(),
+      via: "instance" as const,
+    })),
+  ];
 }
 
 export async function grant(id: number, userId: number, role: InstanceRole, actorId: number) {

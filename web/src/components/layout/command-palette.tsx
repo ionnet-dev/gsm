@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/api/auth";
 import { useInstances } from "@/api/instances";
+import { useManagesNodes } from "@/api/nodes";
 import { InstanceDot } from "@/components/data/status-dot";
 import {
   CommandDialog,
@@ -30,6 +31,7 @@ export function CommandPalette(
 ) {
   const navigate = useNavigate();
   const { admin } = useAuth();
+  const managesNodes = useManagesNodes();
   const [q, setQ] = useState("");
   const { data: instances } = useInstances({ q: q.length >= 1 ? q : undefined, pageSize: 8 });
 
@@ -46,10 +48,14 @@ export function CommandPalette(
     () => [
       { label: "Dashboard", icon: LayoutDashboard, to: "/", keys: "g d" },
       { label: "Instances", icon: Boxes, to: "/instances", keys: "g i" },
-      ...(admin
+      ...(managesNodes
         ? [
           { label: "New instance", icon: Plus, to: "/instances/new" },
           { label: "Nodes", icon: Server, to: "/nodes", keys: "g n" },
+        ]
+        : []),
+      ...(admin
+        ? [
           { label: "Templates", icon: LayoutTemplate, to: "/templates", keys: "g t" },
           { label: "Users & roles", icon: Users, to: "/settings/users" },
           { label: "Enrollment tokens", icon: KeySquare, to: "/settings/enrollment" },
@@ -57,7 +63,7 @@ export function CommandPalette(
         : []),
       { label: "Settings", icon: Settings, to: "/settings", keys: "g s" },
     ],
-    [admin],
+    [admin, managesNodes],
   );
 
   return (
