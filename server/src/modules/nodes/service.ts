@@ -5,6 +5,7 @@
 import { Op, type WhereOptions } from "sequelize";
 import type {
   AgentConfigureParams,
+  FirewallBackend,
   Hello,
   Metrics,
   NodeAccessDto,
@@ -117,6 +118,12 @@ export function nodeDto(n: Node, counts?: Counts, owners: Owners = []): NodeDto 
       hostKey: n.sftpHostKey,
       error: n.sftpError,
       reachable: n.sftpReachability?.port === n.sftpPort ? n.sftpReachability : null,
+    },
+    firewall: {
+      managed: n.firewallManaged,
+      backend: n.firewallBackend as FirewallBackend | null,
+      error: n.firewallError,
+      sftp: n.firewallSftp ?? [],
     },
   };
 }
@@ -291,10 +298,13 @@ export async function authenticateAgent(bearer: string | undefined): Promise<Nod
 export type HelloResult = { ok: true } | { ok: false; reason: string };
 
 async function agentConfig(nodeId: number): Promise<AgentConfigureParams> {
-  const node = await Node.findByPk(nodeId, { attributes: ["id", "sftpPort", "bindAddress"] });
+  const node = await Node.findByPk(nodeId, {
+    attributes: ["id", "sftpPort", "bindAddress", "firewallManaged"],
+  });
   return {
     registryAuth: await getRegistryAuth(),
     sftp: { port: node?.sftpPort ?? null, bindAddress: node?.bindAddress ?? "0.0.0.0" },
+    firewall: { managed: node?.firewallManaged ?? false },
   };
 }
 
@@ -302,10 +312,18 @@ async function agentConfig(nodeId: number): Promise<AgentConfigureParams> {
 export async function configureAgent(nodeId: number): Promise<void> {
   const result = await agentGateway.request(nodeId, "agent.configure", await agentConfig(nodeId));
   const s = result.sftp;
+  const f = result.firewall;
   await Node.update(
-    s
-      ? { sftpHostKey: s.hostKey || null, sftpError: s.error }
-      : { sftpError: "The agent on this node is too old for SFTP; update it" },
+    {
+      ...(s
+        ? { sftpHostKey: s.hostKey || null, sftpError: s.error }
+        : { sftpError: "The agent on this node is too old for SFTP; update it" }),
+      ...(f ? { firewallBackend: f.backend, firewallError: f.error, firewallSftp: f.sftp } : {
+        firewallBackend: null,
+        firewallError: "The agent on this node is too old to manage its firewall; update it",
+        firewallSftp: null,
+      }),
+    },
     { where: { id: nodeId } },
   );
   events.emit("node.sftp", { nodeId, listening: s?.listening ?? false });
@@ -462,10 +480,15 @@ export async function update(id: number, input: z.infer<typeof UpdateNodeBody>):
   if (n.sftpPort !== null && n.sftpPort >= start && n.sftpPort <= end) {
     throw badRequest(`The SFTP port (${n.sftpPort}) must be outside the port pool`);
   }
-  const sftpChanged = n.changed("sftpPort") || n.changed("bindAddress");
+  if (input.firewallManaged !== undefined) n.firewallManaged = input.firewallManaged;
+  const agentChanged = n.changed("sftpPort") || n.changed("bindAddress") ||
+    n.changed("firewallManaged");
+  const firewallOff = n.changed("firewallManaged") && !n.firewallManaged;
   await n.save();
+  // The agent removes the panel's rules when it hears management is off.
+  if (firewallOff) await Instance.update({ firewall: null }, { where: { nodeId: id } });
   uiGateway.broadcast("node.updated", { nodeId: id });
-  if (sftpChanged && agentGateway.isConnected(id)) {
+  if (agentChanged && agentGateway.isConnected(id)) {
     configureAgent(id).catch((err) =>
       nlog.warn("agent.configure failed", { id, err: String(err) })
     );

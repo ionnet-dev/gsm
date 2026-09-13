@@ -253,6 +253,10 @@ events.on(
   "instance.ports_changed",
   ({ instanceId }) => automatic("port", () => checkInstance(instanceId)),
 );
+events.on(
+  "instance.firewall",
+  ({ instanceId }) => automatic("port", () => checkInstanceAndSftp(instanceId), 1_000),
+);
 events.on("node.sftp", ({ nodeId, listening }) => {
   if (listening) automatic("SFTP", () => checkNodeSftp(nodeId), 1_000);
 });

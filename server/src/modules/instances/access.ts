@@ -90,6 +90,7 @@ function permissionRole(permission: InstancePermission): string {
     case "access":
     case "delete":
     case "reinstall":
+    case "firewall":
       return "owner";
     case "view":
     case "console":

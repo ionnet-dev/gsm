@@ -6,9 +6,11 @@
 import { Op, type Order, type WhereOptions } from "sequelize";
 import type {
   CreateInstanceBody,
+  FirewallBackend,
   InstanceAccessDto,
   InstanceDetailDto,
   InstanceDto,
+  InstanceFirewallDto,
   InstanceReachability,
   InstanceRole,
   InstanceStatus,
@@ -91,6 +93,24 @@ function reachabilityDto(i: Instance): InstanceReachability | null {
   return ports.length ? { ...r, ports } : null;
 }
 
+/** The instance's ports in its node's firewall, with what the node allows. */
+function firewallDto(i: Instance): InstanceFirewallDto {
+  const node = i.node!;
+  const problem = !node.firewallManaged
+    ? "Firewall management is off on this node"
+    : node.firewallError ??
+      (node.firewallBackend ? null : "No ufw or firewalld is active on this node");
+  return {
+    managed: node.firewallManaged,
+    backend: node.firewallBackend as FirewallBackend | null,
+    problem,
+    open: i.firewall?.open ?? false,
+    rules: i.firewall?.rules ?? [],
+    sftp: node.firewallSftp ?? [],
+    updatedAt: i.firewall?.updatedAt ?? null,
+  };
+}
+
 export function instanceDto(i: Instance, myRole: InstanceRole): InstanceDto {
   const node = i.node!;
   const t = i.template!;
@@ -119,6 +139,7 @@ export function instanceDto(i: Instance, myRole: InstanceRole): InstanceDto {
     address: primary ? `${address}:${primary.port}` : null,
     players: players.playersOf(t.definition) ? { online: players.onlineCount(i.id) } : null,
     reachability: reachabilityDto(i),
+    firewall: firewallDto(i),
   };
 }
 

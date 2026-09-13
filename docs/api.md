@@ -100,6 +100,7 @@ turns SFTP off; it must lie outside the port pool and not be an instance's port)
 | DELETE | `/instances/:id/access/:userId`                                | access             |                                                                                                                                              |
 | GET    | `/instances/:id/activity?page`                                 | view               | audit entries about the instance                                                                                                             |
 | POST   | `/instances/:id/reachability`                                  | settings           | checks the ports and the node's SFTP now → `{ reachability, sftp }` (see Reachability); 429 when checked a moment ago                        |
+| POST   | `/instances/:id/firewall`                                      | firewall           | `{ open }` opens or closes the instance's ports in the node's firewall (and makes sure the SFTP port is open) → `{ rules }`                  |
 
 ### Files (`files` permission), all under `/instances/:id/files`
 
@@ -153,6 +154,19 @@ answer), `error` (does not resolve, port taken by another program, another servi
 `untested`. Checks also run by themselves when an instance starts, finishes installing or changes
 ports, and when a node's SFTP starts listening. Manual checks are limited to six a minute per
 instance or node.
+
+### Firewall
+
+The `firewall` permission belongs to owners (admins and node owners included). A node lets the panel
+change its firewall with `PATCH /nodes/:id` `{ firewallManaged }` (admins and its owners); turning
+it off removes every rule the panel added there. While it is on, `POST
+/instances/:id/firewall`
+`{ open: true }` has the agent add ufw or firewalld rules for the instance's ports (they then follow
+port changes and go when the instance is deleted), `{ open:
+false }` removes them, and the
+reachability check runs again. `InstanceDto.firewall` and `NodeDto.firewall` carry the state;
+`problem` says why ports cannot be opened (management off, no firewall, the agent too old, not
+root).
 
 ## SSH keys (the requester's own)
 

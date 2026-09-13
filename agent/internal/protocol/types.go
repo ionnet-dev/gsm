@@ -100,6 +100,8 @@ type AgentConfigureParams struct {
 	RegistryAuth json.RawMessage `json:"registryAuth,omitempty"`
 	// SFTP is nil when not mentioned: the listener stays as it is.
 	SFTP *SFTPConfig `json:"sftp,omitempty"`
+	// Firewall is nil when not mentioned: firewall management stays as it is.
+	Firewall *FirewallConfig `json:"firewall,omitempty"`
 }
 
 // SFTPConfig is agent.configure's sftp field. A nil Port stops the listener.
@@ -110,7 +112,8 @@ type SFTPConfig struct {
 
 // AgentConfigureResult answers agent.configure.
 type AgentConfigureResult struct {
-	SFTP SFTPStatus `json:"sftp"`
+	SFTP     SFTPStatus      `json:"sftp"`
+	Firewall *FirewallStatus `json:"firewall,omitempty"`
 }
 
 // SFTPStatus says whether the SFTP listener is up; HostKey is the SHA256 fingerprint of its key.
@@ -636,4 +639,46 @@ type ProbeListenerState struct {
 // ProbeState is both the ready chunk and the result of net.probe.
 type ProbeState struct {
 	Listeners []ProbeListenerState `json:"listeners"`
+}
+
+// ---- firewall ----
+
+// FirewallConfig tells the agent whether it may change the node's firewall.
+type FirewallConfig struct {
+	Managed bool `json:"managed"`
+}
+
+// FirewallPort is a port a firewall rule is wanted for.
+type FirewallPort struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"` // "tcp" | "udp"
+}
+
+// FirewallRule is the state of one wanted rule: "open" (added by the agent), "existing" (it was
+// there already; never removed) or "error".
+type FirewallRule struct {
+	Port     int     `json:"port"`
+	Protocol string  `json:"protocol"`
+	State    string  `json:"state"`
+	Error    *string `json:"error"`
+}
+
+// FirewallStatus answers agent.configure: which firewall runs, and the SFTP port's rule.
+type FirewallStatus struct {
+	Backend *string        `json:"backend"` // "ufw" | "firewalld" | null
+	Managed bool           `json:"managed"`
+	Error   *string        `json:"error"`
+	SFTP    []FirewallRule `json:"sftp"`
+}
+
+// FirewallApplyParams makes the agent's rules for Key exactly Ports.
+type FirewallApplyParams struct {
+	Key   string         `json:"key"`
+	Ports []FirewallPort `json:"ports"`
+}
+
+// FirewallApplyResult reports each wanted rule.
+type FirewallApplyResult struct {
+	Backend *string        `json:"backend"`
+	Rules   []FirewallRule `json:"rules"`
 }

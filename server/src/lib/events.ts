@@ -15,6 +15,8 @@ export interface GsmEvents {
   "instance.running": { instanceId: number };
   /** An install finished or an instance's ports changed, while it is stopped. */
   "instance.ports_changed": { instanceId: number };
+  /** An owner opened or closed an instance's ports in the node's firewall. */
+  "instance.firewall": { instanceId: number };
   /** A node answered agent.configure; `listening` is its SFTP state. */
   "node.sftp": { nodeId: number; listening: boolean };
   /** A user's instance or node access changed (grant, revoke, role, instance created/deleted). */

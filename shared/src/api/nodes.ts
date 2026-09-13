@@ -3,6 +3,7 @@ import type { NodeStatus } from "../enums.ts";
 import type { DockerInfo, Inventory, Metrics } from "../protocol/agent.ts";
 import { Pagination } from "./common.ts";
 import type { SftpReachability } from "./reachability.ts";
+import type { FirewallBackend, FirewallRule } from "../protocol/firewall.ts";
 
 /** The default port pool for a new node. */
 export const DEFAULT_PORT_RANGE = { start: 30000, end: 30999 } as const;
@@ -46,6 +47,16 @@ export interface NodeDto {
     hostKey: string | null;
     error: string | null;
     reachable: SftpReachability | null;
+  };
+  /**
+   * `managed`: the panel may change the node's firewall (instance owners open their ports, the
+   * SFTP port is kept open). `backend`/`error`/`sftp` as the agent last reported them.
+   */
+  firewall: {
+    managed: boolean;
+    backend: FirewallBackend | null;
+    error: string | null;
+    sftp: FirewallRule[];
   };
 }
 
@@ -112,5 +123,7 @@ export const UpdateNodeBody = z.object({
   portRangeEnd: z.number().int().min(1024).max(65535).optional(),
   /** null turns SFTP off on the node. */
   sftpPort: z.number().int().min(1).max(65535).nullable().optional(),
+  /** Let the panel change the node's firewall; turning it off removes the panel's rules. */
+  firewallManaged: z.boolean().optional(),
 });
 export type UpdateNodeBody = z.input<typeof UpdateNodeBody>;

@@ -134,6 +134,10 @@ node's SFTP port answer at the node's public address: TCP connects for a running
 `net.probe` listener for a stopped one (the only way to test UDP), and the SSH greeting for SFTP.
 Results are stored on the instance and the node and shown next to the address.
 
+The firewall (`modules/firewall/`, agent `internal/firewall`) is opt-in per node: with "Manage
+firewall" on, an instance's owners can have the agent open its ports with ufw or firewalld
+(`fw.apply`), and the agent keeps the SFTP port open. Opened ports follow port changes.
+
 Backups are `.tar.gz` archives under `<dataDir>/backups/<uuid>/` made by the agent (`backup.create`,
 progress streamed), recorded in `backups` with size and SHA-256. Restoring requires a stopped
 instance. Downloads go through the same transfer relay.

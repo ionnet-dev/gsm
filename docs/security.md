@@ -93,6 +93,13 @@ the instance's ports and the SFTP port. For a stopped instance the agent listens
 at most 15 seconds, only when the server asks (`net.probe`), and reacts to nothing but the one-time
 token. Only owners and operators (and node owners, admins) can start a check.
 
+The agent changes the node's firewall only when the node's "Manage firewall" switch is on (admins
+and the node's owners set it) and only for an instance's own ports, when one of its owners asks,
+plus the SFTP port. It runs `ufw` or `firewall-cmd` with fixed arguments (no shell), remembers the
+rules it added and never removes a rule that was there before. Turning the switch off, deleting an
+instance or changing its ports removes the rules it added; removing works even while the switch is
+off, opening does not.
+
 ## Agents and nodes
 
 Agents authenticate with `<nodeId>.<secret>`; only a SHA-256 of the secret is stored and compared in

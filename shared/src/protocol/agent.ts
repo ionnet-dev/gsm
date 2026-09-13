@@ -10,6 +10,7 @@ import { backupMethods } from "./backups.ts";
 import { imageMethods } from "./images.ts";
 import { SftpConfig, sftpEvents, sftpMethods, SftpStatus } from "./sftp.ts";
 import { probeMethods } from "./probe.ts";
+import { FirewallConfig, firewallMethods, FirewallStatus } from "./firewall.ts";
 
 // ---- inventory & presence -------------------------------------------------
 
@@ -96,6 +97,8 @@ export const AgentConfigureParams = z.object({
     .optional(),
   /** The node's SFTP port and bind address; absent leaves SFTP as it is. */
   sftp: SftpConfig.optional(),
+  /** Whether the agent may change the node's firewall; absent leaves it as it is. */
+  firewall: FirewallConfig.optional(),
 });
 export type AgentConfigureParams = z.infer<typeof AgentConfigureParams>;
 
@@ -112,7 +115,7 @@ export const agentMethods = {
   /** Agents too old for SFTP answer `{}`. */
   "agent.configure": {
     params: AgentConfigureParams,
-    result: z.object({ sftp: SftpStatus.optional() }),
+    result: z.object({ sftp: SftpStatus.optional(), firewall: FirewallStatus.optional() }),
   },
   /**
    * Download `<server>/<path>`, verify, replace the binary and exit so systemd restarts the agent.
@@ -128,6 +131,7 @@ export const agentMethods = {
   ...imageMethods,
   ...sftpMethods,
   ...probeMethods,
+  ...firewallMethods,
 } as const;
 export type AgentMethod = keyof typeof agentMethods;
 export type AgentParams<M extends AgentMethod> = z.input<(typeof agentMethods)[M]["params"]>;

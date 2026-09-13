@@ -29,7 +29,7 @@ named there; this table is the overview.
 | Method                    | Params                            | Result / stream                                                             |
 | ------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
 | `agent.ping`              | `{}`                              | `{ at, agentVersion }`                                                      |
-| `agent.configure`         | `{ registryAuth?, sftp? }`        | `{ sftp? }` (SFTP status, see SFTP below); sent after hello and on changes  |
+| `agent.configure`         | `AgentConfigureParams`            | `{ sftp?, firewall? }`, see SFTP and Firewall; after hello and changes      |
 | `agent.update`            | `{ version, path, sha256 }`       | `{ replaced, message }`; the agent restarts into the new binary             |
 | `sys.inventory`           | `{}`                              | `Inventory`                                                                 |
 | `inst.list`               | `{}`                              | `{ instances: InstanceState[] }` — every container labelled `gsm.instance`  |
@@ -54,6 +54,7 @@ named there; this table is the overview.
 | `sftp.sessions`           | `{ userIds? }`                    | `{ sessions: SftpSession[] }` — open SFTP connections                       |
 | `sftp.disconnect`         | `{ ids }`                         | `{ closed }`                                                                |
 | `net.probe`               | `ProbeParams`                     | stream `ProbeState` once listening; result `ProbeState` (see below)         |
+| `fw.apply`                | `{ key, ports }`                  | `{ backend, rules }` (see Firewall below)                                   |
 
 ### The instance spec
 
@@ -124,6 +125,19 @@ as soon as every open listener got the token, or after `timeoutMs` (1–15 s). T
 `GSM-PROBE <token>` to the node's public address, as a line over TCP and as datagrams over UDP; the
 agent answers `GSM-PROBE-OK` and ignores anything else. Running servers are not probed: their TCP
 ports are simply connected to.
+
+### Firewall
+
+With `agent.configure` `firewall: { managed: true }` the agent may change the node's firewall. It
+uses whichever of ufw and firewalld is active (fixed commands, no shell) and keeps the rules it
+added in `<data_dir>/state/firewall.json`, per key: `sftp` for the SFTP port, whose rule follows the
+SFTP port while management is on, and `instance:<uuid>` for `fw.apply`, which makes an instance's
+rules exactly `ports` (`[]` removes them). A rule that is already there (any rule allowing the port
+from anywhere) is reported as `existing` and never removed. Each wanted rule comes back `open`,
+`existing` or `error`. With `managed: false` nothing is opened, and every rule the agent added is
+removed; `inst.remove` removes the instance's rules. The configure answer reports `backend` (`ufw`,
+`firewalld` or null), `error` (a firewall that could not be asked, e.g. without root) and the SFTP
+rule.
 
 ## Transfers
 

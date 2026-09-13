@@ -52,6 +52,11 @@ node itself or in its network, the check cannot see an outside firewall; and Doc
 container ports around some host firewalls (ufw), so a stopped server's test, which the host
 firewall sees, can report a port blocked that the running server still serves.
 
+Instead of opening the whole port range, you can turn on "Manage firewall" on a node (Settings tab):
+its instances' owners can then open exactly their ports with ufw or firewalld from the instance's
+address mark, and the SFTP port is opened for you. Firewalls in front of the node (cloud security
+groups, routers) still have to be opened there.
+
 The instance images come from `ghcr.io/ionnet-dev` (Settings → General → Image registry). Nodes pull
 them on first use; for a private registry, enter credentials under Settings → General → Registry,
 which every agent receives.

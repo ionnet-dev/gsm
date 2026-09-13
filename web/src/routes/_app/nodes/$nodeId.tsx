@@ -31,6 +31,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -622,6 +623,7 @@ function NodeSettings({ node: n }: { node: NodeDetailDto }) {
           </Button>
         </CardContent>
       </Card>
+      <FirewallCard node={n} />
       {admin && (
         <Card className="border-status-critical/40">
           <CardHeader>
@@ -791,5 +793,82 @@ function AddOwnerDialog(
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const FIREWALL_RULE_LABEL = {
+  open: "opened by the panel",
+  existing: "already open",
+  error: "failed",
+};
+
+/** The node's "Manage firewall" switch (admins and the node's owners). */
+function FirewallCard({ node: n }: { node: NodeDetailDto }) {
+  const nm = useNodeMutations();
+  const set = (managed: boolean) =>
+    nm.update.mutate({ id: n.id, firewallManaged: managed }, {
+      onSuccess: () =>
+        toast.success(
+          managed
+            ? "Firewall management is on"
+            : "Firewall management is off; the panel's rules are gone",
+        ),
+      onError: (e) => toast.error(errorMessage(e)),
+    });
+  const f = n.firewall;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Firewall</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-xs">
+        <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <div className="text-[13px] font-medium">Let instance owners open their ports</div>
+            <div className="text-muted-foreground">
+              The agent adds ufw or firewalld rules for an instance's ports when one of its owners
+              asks, keeps the SFTP port open, and only ever removes rules it added itself.
+            </div>
+          </div>
+          {f.managed
+            ? (
+              <ConfirmDialog
+                trigger={
+                  <Switch checked aria-label="Manage firewall" disabled={nm.update.isPending} />
+                }
+                title="Turn off firewall management?"
+                description="The ports the panel opened on this node are closed again. Rules that were there before stay."
+                confirmLabel="Turn off"
+                onConfirm={() => set(false)}
+              />
+            )
+            : (
+              <Switch
+                checked={false}
+                aria-label="Manage firewall"
+                disabled={nm.update.isPending}
+                onCheckedChange={(v) => v && set(true)}
+              />
+            )}
+        </div>
+        <div className={f.error ? "text-status-critical" : "text-muted-foreground"}>
+          {f.error ??
+            (f.backend
+              ? `This node uses ${f.backend}.`
+              : "No ufw or firewalld is active on this node; blocked ports are blocked elsewhere (cloud firewall, router).")}
+        </div>
+        {f.managed &&
+          f.sftp.map((r) => (
+            <div key={`${r.port}/${r.protocol}`} className="flex justify-between gap-2">
+              <span className="font-mono">SFTP {r.port}/{r.protocol}</span>
+              <span
+                className={r.state === "error" ? "text-status-critical" : "text-muted-foreground"}
+              >
+                {r.state === "error" ? `failed: ${r.error}` : FIREWALL_RULE_LABEL[r.state]}
+              </span>
+            </div>
+          ))}
+      </CardContent>
+    </Card>
   );
 }

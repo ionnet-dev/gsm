@@ -9,6 +9,7 @@ import {
 } from "sequelize";
 import type {
   BackupStatus,
+  FirewallRule,
   InstanceReachability,
   InstanceRole,
   InstanceStats,
@@ -45,6 +46,10 @@ export class Instance extends Model<InferAttributes<Instance>, InferCreationAttr
   declare containerId: CreationOptional<string | null>;
   /** The last reachability check (modules/reachability). */
   declare reachability: CreationOptional<InstanceReachability | null>;
+  /** Set while an owner has the instance's ports open in the node's firewall (modules/firewall). */
+  declare firewall: CreationOptional<
+    { open: boolean; rules: FirewallRule[]; updatedAt: string } | null
+  >;
   declare createdBy: ForeignKey<number | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -79,6 +84,7 @@ Instance.init(
     lastStats: { type: DataTypes.JSON, allowNull: true },
     containerId: { type: DataTypes.STRING(80), allowNull: true },
     reachability: { type: DataTypes.JSON, allowNull: true },
+    firewall: { type: DataTypes.JSON, allowNull: true },
     createdBy: { type: DataTypes.BIGINT, allowNull: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),

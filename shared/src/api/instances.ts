@@ -8,6 +8,7 @@ import {
 import type { InstanceStats, ResourceLimits } from "../protocol/instances.ts";
 import { Pagination } from "./common.ts";
 import type { InstanceReachability } from "./reachability.ts";
+import type { InstanceFirewallDto } from "./firewall.ts";
 import { VARIABLE_NAME_RE } from "./templates.ts";
 
 export const VariableValues = z.record(z.string().regex(VARIABLE_NAME_RE), z.string().max(4000));
@@ -49,6 +50,7 @@ export interface InstanceDto {
   players: { online: number } | null;
   /** The last reachability check of its ports (current ports only); null before the first. */
   reachability: InstanceReachability | null;
+  firewall: InstanceFirewallDto;
 }
 
 export interface InstanceDetailDto extends InstanceDto {
@@ -152,6 +154,8 @@ export const INSTANCE_PERMISSIONS = {
   access: ["owner"],
   delete: ["owner"],
   reinstall: ["owner"],
+  /** Open the instance's ports in the node's firewall (when the node allows it). */
+  firewall: ["owner"],
 } as const satisfies Record<string, readonly InstanceRole[]>;
 export type InstancePermission = keyof typeof INSTANCE_PERMISSIONS;
 

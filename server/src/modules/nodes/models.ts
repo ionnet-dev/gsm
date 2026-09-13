@@ -7,7 +7,14 @@ import {
   Model,
   type NonAttribute,
 } from "sequelize";
-import type { DockerInfo, Inventory, Metrics, NodeStatus, SftpReachability } from "@gsm/shared";
+import type {
+  DockerInfo,
+  FirewallRule,
+  Inventory,
+  Metrics,
+  NodeStatus,
+  SftpReachability,
+} from "@gsm/shared";
 import { DEFAULT_PORT_RANGE, DEFAULT_SFTP_PORT, NODE_STATUSES } from "@gsm/shared";
 import { sequelize } from "../../db/sequelize.ts";
 import { ID } from "../../lib/model.ts";
@@ -94,6 +101,12 @@ export class Node extends Model<InferAttributes<Node>, InferCreationAttributes<N
   declare sftpError: CreationOptional<string | null>;
   /** The last check of the SFTP port from outside (modules/reachability). */
   declare sftpReachability: CreationOptional<SftpReachability | null>;
+  /** The panel may change the node's firewall (modules/firewall). */
+  declare firewallManaged: CreationOptional<boolean>;
+  /** As the agent last reported from agent.configure. */
+  declare firewallBackend: CreationOptional<string | null>;
+  declare firewallError: CreationOptional<string | null>;
+  declare firewallSftp: CreationOptional<FirewallRule[] | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 
@@ -167,6 +180,10 @@ Node.init(
     sftpHostKey: { type: DataTypes.STRING(100), allowNull: true },
     sftpError: { type: DataTypes.STRING(500), allowNull: true },
     sftpReachability: { type: DataTypes.JSON, allowNull: true },
+    firewallManaged: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    firewallBackend: { type: DataTypes.STRING(20), allowNull: true },
+    firewallError: { type: DataTypes.STRING(500), allowNull: true },
+    firewallSftp: { type: DataTypes.JSON, allowNull: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),
   },

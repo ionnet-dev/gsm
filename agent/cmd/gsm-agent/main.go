@@ -18,6 +18,7 @@ import (
 
 	"github.com/ionnet/gsm/agent/internal/config"
 	"github.com/ionnet/gsm/agent/internal/docker"
+	"github.com/ionnet/gsm/agent/internal/firewall"
 	"github.com/ionnet/gsm/agent/internal/instances"
 	"github.com/ionnet/gsm/agent/internal/inventory"
 	"github.com/ionnet/gsm/agent/internal/logging"
@@ -190,12 +191,14 @@ func run(args []string) int {
 	sftpSrv := newSFTP(ctx, client, cfg, manager, log)
 	defer sftpSrv.Close()
 
-	registerAgent(client, cfg, dk, manager, sftpSrv, log, stop)
-	registerInstances(client, manager, sftpSrv, log)
+	fw := firewall.New(cfg.StateDir(), firewall.Exec, log.With("component", "firewall"))
+	registerAgent(client, cfg, dk, manager, sftpSrv, fw, log, stop)
+	registerInstances(client, manager, sftpSrv, fw, log)
 	registerFiles(client, manager, xfer, log)
 	registerBackups(client, manager, xfer, log)
 	registerImages(client, dk, log)
 	registerNet(client, log)
+	registerFirewall(client, fw, log)
 	registerSFTP(client, sftpSrv)
 
 	log.Info("gsm-agent starting", "version", version, "server", cfg.ServerURL, "os", runtime.GOOS, "data_dir", cfg.DataDir)
@@ -228,14 +231,14 @@ func metricsLoop(ctx context.Context, c *transport.Client, s *metrics.Sampler, e
 
 // registerAgent wires agent.ping, agent.configure (registry credentials and the SFTP listener),
 // agent.update and sys.inventory.
-func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Client, manager *instances.Manager, sftpSrv *sftpd.Server, log *slog.Logger, stop context.CancelFunc) {
+func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Client, manager *instances.Manager, sftpSrv *sftpd.Server, fw *firewall.Manager, log *slog.Logger, stop context.CancelFunc) {
 	client.Handle("agent.ping", func(context.Context, json.RawMessage, transport.StreamWriter) (any, error) {
 		return protocol.PingResult{At: time.Now().UTC(), AgentVersion: version}, nil
 	})
 	client.Handle("sys.inventory", func(ctx context.Context, _ json.RawMessage, _ transport.StreamWriter) (any, error) {
 		return inventory.Collect(ctx, cfg.DataDir, dk), nil
 	})
-	client.Handle("agent.configure", func(_ context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
+	client.Handle("agent.configure", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
 		var p protocol.AgentConfigureParams
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, invalidParams("invalid agent.configure params")
@@ -250,7 +253,17 @@ func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Clien
 		if p.SFTP != nil {
 			status = sftpSrv.Configure(p.SFTP.Port, p.SFTP.BindAddress)
 		}
-		return protocol.AgentConfigureResult{SFTP: status}, nil
+		res := protocol.AgentConfigureResult{SFTP: status}
+		if p.Firewall != nil {
+			// The SFTP port's rule follows the port the listener was just given.
+			sftpPort := status.Port
+			if p.SFTP != nil {
+				sftpPort = p.SFTP.Port
+			}
+			fwStatus := fw.Configure(ctx, p.Firewall.Managed, sftpPort)
+			res.Firewall = &fwStatus
+		}
+		return res, nil
 	})
 	client.Handle("agent.update", func(_ context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
 		var p protocol.AgentUpdateParams
@@ -290,7 +303,7 @@ func validSpec(s *protocol.InstanceSpec) bool {
 }
 
 // registerInstances wires inst.*.
-func registerInstances(client *transport.Client, m *instances.Manager, sftpSrv *sftpd.Server, log *slog.Logger) {
+func registerInstances(client *transport.Client, m *instances.Manager, sftpSrv *sftpd.Server, fw *firewall.Manager, log *slog.Logger) {
 	client.Handle("inst.list", func(ctx context.Context, _ json.RawMessage, _ transport.StreamWriter) (any, error) {
 		list, err := m.List(ctx)
 		if err != nil {
@@ -376,6 +389,7 @@ func registerInstances(client *transport.Client, m *instances.Manager, sftpSrv *
 		log.Info("inst.remove", "uuid", p.UUID, "delete_files", p.DeleteFiles)
 		// Nobody may keep files open in a directory that is about to go.
 		sftpSrv.CloseInstance(p.UUID)
+		fw.Remove(ctx, "instance:"+p.UUID)
 		return map[string]any{}, rpcErr(m.Remove(ctx, p.UUID, p.DeleteFiles))
 	})
 	client.Handle("inst.stats", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
@@ -450,5 +464,19 @@ func registerNet(client *transport.Client, log *slog.Logger) {
 		}
 		log.Info("net.probe", "listeners", len(p.Listeners))
 		return netprobe.Run(ctx, p, func(s protocol.ProbeState) { _ = stream.Send(s) }), nil
+	})
+}
+
+// registerFirewall wires fw.apply: an instance's ports in the node's firewall.
+func registerFirewall(client *transport.Client, fw *firewall.Manager, log *slog.Logger) {
+	client.Handle("fw.apply", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
+		var p protocol.FirewallApplyParams
+		if err := decode(raw, &p, func() bool {
+			return firewall.ValidInstanceKey(p.Key) && firewall.ValidPorts(p.Ports)
+		}); err != nil {
+			return nil, err
+		}
+		log.Info("fw.apply", "key", p.Key, "ports", len(p.Ports))
+		return fw.Apply(ctx, p.Key, p.Ports), nil
 	})
 }
