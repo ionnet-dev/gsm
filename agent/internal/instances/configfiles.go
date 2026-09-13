@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -41,6 +42,8 @@ func ApplyConfigFile(root string, spec protocol.ConfigFileSpec, uid, gid int) er
 		out = MergeINI(existing, spec.Values)
 	case "yaml":
 		out, err = MergeYAML(existing, spec.Values)
+	case "xml-properties":
+		out = MergeXMLProperties(existing, spec.Values)
 	default:
 		return fmt.Errorf("unknown config file format %q", spec.Format)
 	}
@@ -172,6 +175,65 @@ func MergeINI(existing []byte, values map[string]string) []byte {
 		}
 	}
 	return []byte(strings.Join(out, "\n") + "\n")
+}
+
+var (
+	xmlTagOrComment = regexp.MustCompile(`(?s)<!--.*?-->|<property\b[^>]*>`)
+	xmlNameAttr     = regexp.MustCompile(`\bname\s*=\s*"([^"]*)"`)
+	xmlValueAttr    = regexp.MustCompile(`\bvalue\s*=\s*"[^"]*"`)
+	xmlAttrEscaper  = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+)
+
+// MergeXMLProperties sets `<property name="KEY" value="…"/>` elements (7 Days to Die's
+// serverconfig.xml), keeping everything else as it is. Commented-out properties are left alone;
+// properties not in the file yet are added before the root element's closing tag.
+func MergeXMLProperties(existing []byte, values map[string]string) []byte {
+	text := string(existing)
+	if strings.TrimSpace(text) == "" {
+		text = "<?xml version=\"1.0\"?>\n<ServerSettings>\n</ServerSettings>\n"
+	}
+	remaining := map[string]string{}
+	for k, v := range values {
+		remaining[k] = v
+	}
+	text = xmlTagOrComment.ReplaceAllStringFunc(text, func(tag string) string {
+		if strings.HasPrefix(tag, "<!--") {
+			return tag
+		}
+		m := xmlNameAttr.FindStringSubmatch(tag)
+		if m == nil {
+			return tag
+		}
+		v, ok := remaining[m[1]]
+		if !ok {
+			return tag
+		}
+		delete(remaining, m[1])
+		attr := `value="` + xmlAttrEscaper.Replace(v) + `"`
+		if xmlValueAttr.MatchString(tag) {
+			return xmlValueAttr.ReplaceAllLiteralString(tag, attr)
+		}
+		end := strings.TrimSuffix(strings.TrimSuffix(tag, ">"), "/")
+		return strings.TrimRight(end, " \t") + " " + attr + tag[len(end):]
+	})
+	if len(remaining) == 0 {
+		return []byte(text)
+	}
+	var add strings.Builder
+	for _, k := range sortedKeys(remaining) {
+		add.WriteString("\t<property name=\"" + xmlAttrEscaper.Replace(k) + "\" value=\"" + xmlAttrEscaper.Replace(remaining[k]) + "\"/>\n")
+	}
+	i := strings.LastIndex(text, "</")
+	if i < 0 {
+		return []byte(text + add.String())
+	}
+	// New lines go where the closing tag's line starts, so its indentation stays; a closing tag
+	// sharing its line with other content gets a line break first.
+	lineStart := strings.LastIndex(text[:i], "\n") + 1
+	if strings.TrimSpace(text[lineStart:i]) != "" {
+		return []byte(text[:i] + "\n" + add.String() + text[i:])
+	}
+	return []byte(text[:lineStart] + add.String() + text[lineStart:])
 }
 
 // MergeJSON sets dotted keys in a JSON object, creating nested objects as needed. Values that

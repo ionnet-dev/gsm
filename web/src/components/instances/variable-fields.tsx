@@ -28,9 +28,12 @@ export function VariableFields({
   if (!shown.length) {
     return <p className="text-xs text-muted-foreground">This template has no variables.</p>;
   }
-  return (
+  // Ungrouped variables first, then each group in the order it first appears.
+  const groups = new Map<string, TemplateVariable[]>([["", []]]);
+  for (const v of shown) groups.set(v.group, [...(groups.get(v.group) ?? []), v]);
+  const grid = (vars: TemplateVariable[]) => (
     <div className="grid gap-3 sm:grid-cols-2">
-      {shown.map((v) => (
+      {vars.map((v) => (
         <VariableField
           key={v.name}
           variable={v}
@@ -39,6 +42,22 @@ export function VariableFields({
           readOnly={!owner && !v.editable}
           onChange={(val) => onChange(v.name, val)}
         />
+      ))}
+    </div>
+  );
+  const sections = [...groups].filter(([, vars]) => vars.length);
+  if (sections.length === 1) return grid(sections[0][1]);
+  return (
+    <div className="grid gap-5">
+      {sections.map(([group, vars]) => (
+        <section key={group || "general"} className="grid gap-2.5">
+          {group && (
+            <h3 className="border-b pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              {group}
+            </h3>
+          )}
+          {grid(vars)}
+        </section>
       ))}
     </div>
   );
@@ -97,6 +116,7 @@ function VariableField({
           onValueChange={onChange}
           disabled={readOnly}
           options={v.options}
+          allowCustom={v.allowCustom}
         />,
       );
     case "version":

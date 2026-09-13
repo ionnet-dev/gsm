@@ -44,6 +44,8 @@ export const NEW_VARIABLE: TemplateVariable = {
   editable: true,
   viewable: true,
   pattern: null,
+  allowCustom: false,
+  group: "",
 };
 
 /** A players section to start from: no patterns, lists or actions yet. */

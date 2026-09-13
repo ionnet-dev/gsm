@@ -3,7 +3,7 @@ import { Loader2, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { InstanceDetailDto, TemplateDetailDto } from "@gsm/shared";
-import { BUILTIN_VARIABLES, roleAllows, validateVariable } from "@gsm/shared";
+import { BUILTIN_VARIABLES, portRun, roleAllows, validateVariable } from "@gsm/shared";
 import { errorMessage } from "@/api/client";
 import { useInstance, useInstanceMutations } from "@/api/instances";
 import { useNode } from "@/api/nodes";
@@ -74,9 +74,20 @@ function SettingsForm(
   const inUse = new Set(
     (nodeDetail?.node.portsInUse ?? []).filter((p) => p.instanceId !== i.id).map((p) => p.port),
   );
-  const portsChanged = i.ports.some((p) => ports[p.name] !== String(p.port));
-  const portsBad = Object.values(ports).some((v) => {
-    const n = Number(v);
+  // A port that follows another is always that port plus its offset; it is shown, never sent.
+  const followerOf = (name: string) => {
+    const run = portRun(def.ports, name);
+    return run.offset > 0 ? run : null;
+  };
+  const portValue = (name: string) => {
+    const run = followerOf(name);
+    if (!run) return ports[name] ?? "";
+    const head = ports[run.head] ?? "";
+    return head !== "" && Number.isInteger(Number(head)) ? String(Number(head) + run.offset) : "";
+  };
+  const portsChanged = i.ports.some((p) => portValue(p.name) !== String(p.port));
+  const portsBad = i.ports.some((p) => {
+    const n = Number(portValue(p.name));
     return !Number.isInteger(n) || n < 1 || n > 65535 || inUse.has(n);
   });
   const images = [
@@ -98,7 +109,9 @@ function SettingsForm(
         ...(running ? {} : {
           image,
           limits,
-          ports: Object.fromEntries(Object.entries(ports).map(([k, v]) => [k, Number(v)])),
+          ports: Object.fromEntries(
+            Object.entries(ports).filter(([k]) => !followerOf(k)).map(([k, v]) => [k, Number(v)]),
+          ),
         }),
       },
       { onSuccess: () => toast.success("Saved"), onError: (e) => toast.error(errorMessage(e)) },
@@ -203,16 +216,19 @@ function SettingsForm(
                       key={p.name}
                       label={`${p.label} (${p.protocol})`}
                       htmlFor={`sport-${p.name}`}
-                      error={inUse.has(Number(ports[p.name])) ? "In use on this node" : null}
+                      error={inUse.has(Number(portValue(p.name))) ? "In use on this node" : null}
+                      hint={followerOf(p.name)
+                        ? `Always ${followerOf(p.name)!.head} + ${followerOf(p.name)!.offset}`
+                        : undefined}
                     >
                       <Input
                         id={`sport-${p.name}`}
                         type="number"
                         min={1}
                         max={65535}
-                        disabled={running}
+                        disabled={running || !!followerOf(p.name)}
                         className="font-mono"
-                        value={ports[p.name] ?? ""}
+                        value={portValue(p.name)}
                         onChange={(e) => setPorts({ ...ports, [p.name]: e.target.value })}
                       />
                     </Field>

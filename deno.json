@@ -16,7 +16,7 @@
     "db:up": "docker compose -f docker-compose.dev.yml up -d",
     "db:down": "docker compose -f docker-compose.dev.yml down",
     "dev": "deno task dev:server & deno task dev:web; wait",
-    "images:build": "docker build -t ghcr.io/ionnet-dev/gsm-base:latest images/base && for v in 8 17 21 25; do docker build --build-arg JAVA_VERSION=$v -t ghcr.io/ionnet-dev/gsm-java:$v images/java; done"
+    "images:build": "docker build -t ghcr.io/ionnet-dev/gsm-base:latest images/base && for v in 8 17 21 25; do docker build --build-arg JAVA_VERSION=$v -t ghcr.io/ionnet-dev/gsm-java:$v images/java; done && docker build -t ghcr.io/ionnet-dev/gsm-steamcmd:latest images/steamcmd"
   },
   "fmt": {
     "lineWidth": 100,

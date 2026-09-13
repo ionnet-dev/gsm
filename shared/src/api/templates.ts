@@ -7,6 +7,7 @@
 import { z } from "zod";
 import {
   CONFIG_FILE_FORMATS,
+  CONSOLE_TRANSPORTS,
   PLAYER_ACTION_ICONS,
   PLAYER_FIELD_TYPES,
   PLAYER_LIST_FORMATS,
@@ -21,11 +22,14 @@ export const TEMPLATE_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 /**
  * Version sources the server can list and resolve. `minecraft:vanilla` lists Mojang's manifest;
  * `minecraft:forge` and `minecraft:neoforge` list loader versions for a parent game version.
+ * `steam:<app id>` lists the app's public Steam branches (for SteamCMD's `-beta`), from
+ * api.steamcmd.net, with `public` and `latest_experimental` when that cannot be reached.
  */
 export const VERSION_SOURCES = [
   "minecraft:vanilla",
   "minecraft:forge",
   "minecraft:neoforge",
+  "steam:294420",
 ] as const;
 export type VersionSource = (typeof VERSION_SOURCES)[number];
 
@@ -50,6 +54,8 @@ export const TemplateVariable = z.object({
   required: z.boolean().default(false),
   /** For `select`. */
   options: z.array(z.object({ value: z.string().max(200), label: z.string().max(80) })).default([]),
+  /** For `select`: the options are suggestions and any other value is accepted too. */
+  allowCustom: z.boolean().default(false),
   /** For `number`. */
   min: z.number().nullable().default(null),
   max: z.number().nullable().default(null),
@@ -62,6 +68,8 @@ export const TemplateVariable = z.object({
   viewable: z.boolean().default(true),
   /** Free-text regular expression the value must match. */
   pattern: z.string().max(200).nullable().default(null),
+  /** Heading the variable is shown under ("World", "Rules"); variables without one come first. */
+  group: z.string().max(40).default(""),
 });
 export type TemplateVariable = z.infer<typeof TemplateVariable>;
 
@@ -74,6 +82,12 @@ export const TemplatePort = z.object({
   default: z.number().int().min(1).max(65535),
   /** True for the port players connect to (shown as the instance's address). */
   primary: z.boolean().default(false),
+  /**
+   * The name of an earlier port this one always comes right after (its number plus one), for
+   * games that use a run of ports from one setting, like 7 Days to Die's game port and the two
+   * after it. Such ports are never picked on their own.
+   */
+  follows: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/).nullable().default(null),
 });
 export type TemplatePort = z.infer<typeof TemplatePort>;
 
@@ -118,12 +132,19 @@ export const TemplatePlayerList = z.object({
   /** Shown next to a player who is on the list: "Operator". */
   badge: z.string().max(30).default(""),
   path: z.string().min(1).max(512),
-  /** `json`: an array of objects; `lines`: one name per line, `#` starts a comment. */
+  /**
+   * `json`: an array of objects; `lines`: one name per line, `#` starts a comment; `xml`: the
+   * `element` entries of an XML file, whose attributes are read like JSON keys.
+   */
   format: z.enum(PLAYER_LIST_FORMATS),
-  /** For `json`: the keys holding each entry's name and id. */
+  /** For `xml`: the entries' element under its parent, as `parent/child` (`whitelist/user`). */
+  element: z.string().regex(/^[A-Za-z_][\w.-]*\/[A-Za-z_][\w.-]*$/).nullable().default(null),
+  /** For `json` and `xml`: the keys holding each entry's name and id. */
   nameKey: z.string().min(1).max(60).default("name"),
   idKey: z.string().min(1).max(60).nullable().default(null),
-  /** For `json`: more keys of each entry to show as columns. */
+  /** Builds the id from several keys instead, like `{{platform}}_{{userid}}`; wins over `idKey`. */
+  idFormat: z.string().max(120).nullable().default(null),
+  /** For `json` and `xml`: more keys of each entry to show as columns. */
   columns: z.array(z.object({ key: z.string().min(1).max(60), label: z.string().min(1).max(40) }))
     .max(8).default([]),
 });
@@ -189,15 +210,39 @@ export const TemplatePlayers = z.object({
   /** A command that prints who is online, and how to read its answer. */
   list: z.object({
     command: z.string().min(1).max(200).regex(/^[^\n\r\0]+$/, "Must be a single line"),
-    /** Matches the answer; group `names` holds the entries. */
-    pattern: regexString(["names"]),
+    /**
+     * Matches the answer; group `names` holds the entries. With `line`, matches the line that
+     * ends a multi-line answer instead, and needs no group.
+     */
+    pattern: regexString(),
     separator: z.string().min(1).max(10).default(","),
     /** Matches one entry: groups `name` and, optionally, `id`. Without it an entry is a name. */
     entry: regexString(["name"]).nullable().default(null),
+    /**
+     * For answers with a line per player: matches each such line (groups `name` and, optionally,
+     * `id`). The lines seen before the one matching `pattern` make up the answer.
+     */
+    line: regexString(["name"]).nullable().default(null),
   }).nullable().default(null),
   lists: z.array(TemplatePlayerList).max(8).default([]),
   actions: z.array(TemplatePlayerAction).max(40).default([]),
 }).superRefine((p, ctx) => {
+  if (p.list && !p.list.line && !p.list.pattern.includes("(?<names>")) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["list", "pattern"],
+      message: "Needs the named group names, unless `line` reads a multi-line answer",
+    });
+  }
+  p.lists.forEach((l, i) => {
+    if (l.format === "xml" && !l.element) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["lists", i, "element"],
+        message: "An xml list names its element, like whitelist/user",
+      });
+    }
+  });
   const lists = new Set(p.lists.map((l) => l.id));
   if (lists.size !== p.lists.length) {
     ctx.addIssue({ code: "custom", path: ["lists"], message: "List ids must be unique" });
@@ -267,7 +312,19 @@ export const TemplateDefinition = z.object({
   }).default({ command: null, signal: "SIGTERM", timeoutSeconds: 30 }),
   console: z.object({
     readyPattern: z.string().max(500).nullable().default(null),
-  }).default({ readyPattern: null }),
+    /**
+     * For games that take commands on a network console instead of stdin: telnet or Source RCON
+     * on `port` inside the container (not a template port; it is never published). `password`
+     * may use placeholders, such as {{GSM_CONSOLE_PASSWORD}}; answers matching `ignore` are not
+     * shown (lines the game printed on stdout already).
+     */
+    transport: z.object({
+      kind: z.enum(CONSOLE_TRANSPORTS),
+      port: z.number().int().min(1).max(65535),
+      password: z.string().max(200).default(""),
+      ignore: z.string().max(500).nullable().default(null),
+    }).nullable().default(null),
+  }).default({ readyPattern: null, transport: null }),
   variables: z.array(TemplateVariable).max(64).default([]),
   ports: z.array(TemplatePort).max(32).default([]),
   files: z.array(TemplateConfigFile).max(32).default([]),
@@ -282,6 +339,35 @@ export const TemplateDefinition = z.object({
   backupIgnore: z.array(z.string().max(200)).max(100).default([]),
   /** Player tracking and actions; null when the game has none the panel understands. */
   players: TemplatePlayers.nullable().default(null),
+}).superRefine((d, ctx) => {
+  const names = new Set<string>();
+  d.ports.forEach((p, i) => {
+    if (names.has(p.name)) {
+      ctx.addIssue({ code: "custom", path: ["ports", i, "name"], message: "Duplicate port name" });
+    }
+    if (p.follows !== null && !names.has(p.follows)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ports", i, "follows"],
+        message: "Must name a port listed before this one",
+      });
+    }
+    if (p.follows !== null && d.ports.some((o, j) => j < i && o.follows === p.follows)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ports", i, "follows"],
+        message: `Only one port can follow ${p.follows}`,
+      });
+    }
+    if (p.follows !== null && p.primary) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ports", i, "primary"],
+        message: "A port that follows another cannot be the primary one",
+      });
+    }
+    names.add(p.name);
+  });
 });
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>;
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>;
@@ -327,7 +413,27 @@ export const BUILTIN_VARIABLES = [
   },
   { name: "GSM_PORT_<NAME>", description: "The host port for each template port, upper-cased" },
   { name: "GSM_BIND", description: "Address to listen on inside the container (0.0.0.0)" },
+  {
+    name: "GSM_CONSOLE_PASSWORD",
+    description:
+      "A random secret for the game's network console (telnet or RCON), fixed per instance",
+  },
 ] as const;
+
+/** The port a port's run starts at (itself unless it `follows` one) and how far after it it is. */
+export function portRun(
+  ports: Pick<TemplatePort, "name" | "follows">[],
+  name: string,
+): { head: string; offset: number } {
+  let head = name;
+  let offset = 0;
+  for (;;) {
+    const follows = ports.find((p) => p.name === head)?.follows;
+    if (!follows || offset >= ports.length) return { head, offset };
+    head = follows;
+    offset++;
+  }
+}
 
 /** Substitute `{{NAME}}` placeholders; unknown names are left as they are. */
 export function substitute(text: string, vars: Record<string, string>): string {
@@ -359,7 +465,9 @@ export function validateVariable(v: TemplateVariable, value: string): string | n
       if (value !== "true" && value !== "false") return "Must be true or false";
       break;
     case "select":
-      if (!v.options.some((o) => o.value === value)) return "Not one of the options";
+      if (!v.allowCustom && !v.options.some((o) => o.value === value)) {
+        return "Not one of the options";
+      }
       break;
   }
   if (v.pattern) {

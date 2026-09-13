@@ -15,7 +15,7 @@ Browser ──HTTPS/WSS──▶ reverse proxy (TLS) ──▶ gsm-server ──
 | `web/`       | React 19, Vite    | Single-page app; talks REST for reads/writes and listens on `/ws/ui` for pushes     |
 | `agent/`     | Go, static binary | Drives Docker on a node: installs, starts, stops, attaches consoles, files, backups |
 | `shared/`    | TypeScript + zod  | Wire protocol and DTO types used by server and web; mirrored by hand in Go          |
-| `images/`    | Dockerfiles       | `gsm-base` (Debian, `gsm` user 1500, entrypoint) and `gsm-java:<version>`           |
+| `images/`    | Dockerfiles       | `gsm-base` (Debian, user 1500, entrypoint), `gsm-java:<version>`, `gsm-steamcmd`    |
 | `templates/` | JSON              | Built-in game templates, seeded into the database on start                          |
 
 ## Server layout
@@ -78,6 +78,24 @@ templates are stored the same way with `builtin = false`.
 Maven metadata for a parent Minecraft version. **Install resolvers** turn variables into download
 URLs for the install script (`SERVER_JAR_URL`, `INSTALLER_URL`) right before an install runs, so
 templates never hard-code URLs. Both are in `modules/templates/versions.ts` and cached.
+`steam:294420` lists 7 Days to Die's public Steam branches from api.steamcmd.net (`public` first,
+labelled with the version it carries, then `latest_experimental`, then older ones), falling back to
+those two when it cannot be reached; the install script hands the branch to SteamCMD.
+
+**Ports** may `follow` another port: such a port is always that port plus one, so a run (7 Days to
+Die's game port and the two after it) is allocated as one block of free ports in a row, and only its
+first port can be chosen. **Variables** may carry a `group` (a heading in the forms) and, for
+`select`, `allowCustom` (the options are suggestions and any value is accepted, like 7 Days to Die's
+world). **Config files** are merged by the agent as `properties`, `json`, `ini`, `yaml` or
+`xml-properties` (`<property name="…" value="…"/>` elements, 7 Days to Die's serverconfig.xml;
+commented-out properties are left alone).
+
+**Console transport.** A game that does not read stdin declares `console.transport`: telnet or
+Source RCON on a port inside the container. The agent dials it on the container's Docker address
+(the port is never published), signs in with the password (usually `{{GSM_CONSOLE_PASSWORD}}`, an
+HMAC of `SESSION_SECRET` and the instance, so it is never stored), sends console commands and the
+stop command there, and adds the answers to the console, leaving out lines matching `ignore` (7 Days
+to Die repeats its whole log over telnet). See `docs/protocol.md` → Console transport.
 
 ## Instances
 
@@ -87,9 +105,9 @@ for every operation so the agent never has to remember configuration: it holds o
 the data directory `<dataDir>/instances/<uuid>` (mounted at `/data`) and the console log.
 
 - **Environment**: the instance's variables, plus `GSM_INSTANCE_UUID`, `GSM_INSTANCE_NAME`,
-  `GSM_MEMORY_MB`, `GSM_HEAP_MB` (`heapForMemory`), `GSM_PORT_<NAME>` per port and `GSM_BIND`.
-  `{{VAR}}` placeholders in the startup command and config file values are substituted by the server
-  (`substitute`).
+  `GSM_MEMORY_MB`, `GSM_HEAP_MB` (`heapForMemory`), `GSM_PORT_<NAME>` per port, `GSM_BIND` and
+  `GSM_CONSOLE_PASSWORD`. `{{VAR}}` placeholders in the startup command and config file values are
+  substituted by the server (`substitute`).
 - **Install** runs the template's script in a one-off container as the instance user
   (`inst.install`, output streamed as the `install` console stream) with the data directory mounted;
   success writes the `.gsm-installed` marker and sets `installedAt`. Status is `installing` /
@@ -155,18 +173,26 @@ the console stream it already receives, and acts with `inst.command` and `fs.rea
   matching `list.pattern` is the whole truth and replaces the online set. Minecraft uses the
   `… logged in with entity id` and `… lost connection:` lines (they carry the plain name, unlike
   "joined the game"), anchored to the log prefix so chat cannot imitate them, and `list uuids`.
+  Answers with a line per player use `list.line`: the lines seen before the one matching
+  `list.pattern` make up the answer, and a `count` group that disagrees with them discards it (7
+  Days to Die's `lp` ends with "Total of N in the game", like other commands do).
 - **Resync**: stopping, crashing, starting and installing mark everyone offline. After every agent
   hello the supervisor types the template's `list.command` into each running instance, because
   console lines sent while the node was away are lost; the Players tab's Refresh does the same.
 - **Recent players** are offline rows seen in the last 30 days; housekeeping forgets them after 90.
 - **Lists** (operators, bans, whitelist) are files in the instance, read with `fs.read` as `json`
-  arrays or plain `lines`, cached for 30 s and read again when a console line matches
-  `console.refresh` or an action ran. A missing file is an empty list.
+  arrays, plain `lines` or `xml` (the `element` entries under their parent, attributes read like
+  keys; 7 Days to Die's serveradmin.xml), cached for 30 s and read again when a console line matches
+  `console.refresh` or an action ran. A missing file is an empty list. `idFormat` builds an entry's
+  id from several keys (`{{platform}}_{{userid}}`); an entry without a name shows its id.
 - **Actions** are one console command each, with `{{PLAYER}}`, `{{PLAYER_ID}}` and field
   placeholders. The server checks the name against `namePattern` (which keeps out selectors such as
   `@a`) and each field against its type, refuses line breaks, and drops an empty optional field with
   the space before it. `online` limits an action to online players and `when` to players on (or not
-  on) a list, so Ban and Unban, Op and Deop show one at a time.
+  on) a list, so Ban and Unban, Op and Deop show one at a time. A placeholder in double quotes
+  (`"{{PLAYER}}"`) keeps a value with spaces in one argument; double quotes in it become single
+  ones, and an empty optional value drops the quotes too. For someone the console never named,
+  `{{PLAYER_ID}}` comes from a list entry of the same name.
 - Browsers get `instance.players` after each change; `InstanceDto.players.online` is the count, kept
   in memory and loaded at start.
 

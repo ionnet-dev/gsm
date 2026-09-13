@@ -18,7 +18,7 @@ deno task test             # Deno tests (shared, server) + go test
 cd web && deno run -A npm:vite build
 cd agent && go build -o bin/gsm-agent ./cmd/gsm-agent
 deno task agent:build      # stage agent binaries into server/data/downloads so /install.sh works in dev
-deno task images:build     # build gsm-base and gsm-java:{8,17,21,25} locally
+deno task images:build     # build gsm-base, gsm-java:{8,17,21,25} and gsm-steamcmd locally
 deno task 2fa:reset <email>  # turn off 2FA for a locked-out user
 ```
 

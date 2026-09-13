@@ -2,8 +2,9 @@
 
 Game server manager. A central panel with a web UI, plus a small agent on every node that runs game
 servers as Docker containers. GSM installs servers from templates (Minecraft: Java Edition vanilla,
-Forge and NeoForge built in; custom templates for anything else), streams their consoles, manages
-their files and backups, and lets you share each server with other users at the role you choose.
+Forge and NeoForge, and 7 Days to Die built in; custom templates for anything else), streams their
+consoles, manages their files and backups, and lets you share each server with other users at the
+role you choose.
 
 ```
 Browser ──HTTPS/WSS──▶ reverse proxy ──▶ gsm-server (Deno · Hono · Sequelize · MySQL)
@@ -13,16 +14,16 @@ Browser ──HTTPS/WSS──▶ reverse proxy ──▶ gsm-server (Deno · Hon
 
 ## Repository
 
-| Path         | What                                                              |
-| ------------ | ----------------------------------------------------------------- |
-| `server/`    | API + WebSocket gateways. Deno 2, Hono, Sequelize 6, umzug, MySQL |
-| `web/`       | React 19 + Vite, Tailwind 4, shadcn/ui, TanStack Router/Query     |
-| `shared/`    | Protocol and API types shared by server and web (zod schemas)     |
-| `agent/`     | Go agent: Docker, consoles, files, backups                        |
-| `images/`    | Dockerfiles for the instance images (`gsm-base`, `gsm-java`)      |
-| `templates/` | Built-in game templates                                           |
-| `docs/`      | Architecture, API, wire protocol, deployment, security            |
-| `scripts/`   | `install-agent.sh` one-line enrollment script                     |
+| Path         | What                                                                         |
+| ------------ | ---------------------------------------------------------------------------- |
+| `server/`    | API + WebSocket gateways. Deno 2, Hono, Sequelize 6, umzug, MySQL            |
+| `web/`       | React 19 + Vite, Tailwind 4, shadcn/ui, TanStack Router/Query                |
+| `shared/`    | Protocol and API types shared by server and web (zod schemas)                |
+| `agent/`     | Go agent: Docker, consoles, files, backups                                   |
+| `images/`    | Dockerfiles for the instance images (`gsm-base`, `gsm-java`, `gsm-steamcmd`) |
+| `templates/` | Built-in game templates                                                      |
+| `docs/`      | Architecture, API, wire protocol, deployment, security                       |
+| `scripts/`   | `install-agent.sh` one-line enrollment script                                |
 
 ## Development
 
@@ -40,7 +41,7 @@ Other tasks:
 deno task migrate up|down|pending|executed|create <name>
 deno task test
 deno task build                 # builds web/dist, served by the server in production
-deno task images:build          # gsm-base and gsm-java:{8,17,21,25} locally
+deno task images:build          # gsm-base, gsm-java:{8,17,21,25} and gsm-steamcmd locally
 cd agent && go build -o bin/gsm-agent ./cmd/gsm-agent
 ```
 

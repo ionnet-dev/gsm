@@ -294,7 +294,8 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
                       <Input
                         id="tready"
                         value={def.console.readyPattern ?? ""}
-                        onChange={(e) => up({ console: { readyPattern: e.target.value || null } })}
+                        onChange={(e) =>
+                          up({ console: { ...def.console, readyPattern: e.target.value || null } })}
                         className="font-mono"
                       />
                     </Field>
@@ -648,12 +649,17 @@ function VariablesEditor(
                 />
               </div>
             </div>
-            <Field label="Description">
-              <Input
-                value={v.description}
-                onChange={(e) => set(i, { description: e.target.value })}
-              />
-            </Field>
+            <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
+              <Field label="Description">
+                <Input
+                  value={v.description}
+                  onChange={(e) => set(i, { description: e.target.value })}
+                />
+              </Field>
+              <Field label="Group" hint="Heading it is shown under">
+                <Input value={v.group} onChange={(e) => set(i, { group: e.target.value })} />
+              </Field>
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Default">
                 <Input
@@ -683,26 +689,40 @@ function VariablesEditor(
                 </>
               )}
               {v.type === "select" && (
-                <Field label="Options" hint="One per line: value = label" className="sm:col-span-2">
-                  <Textarea
-                    value={v.options.map((o) => (o.label ? `${o.value} = ${o.label}` : o.value))
-                      .join("\n")}
-                    onChange={(e) =>
-                      set(i, {
-                        options: e.target.value.split("\n").map((l) =>
-                          l.trim()
-                        ).filter(Boolean).map((l) => {
-                          const [value, ...rest] = l.split("=");
-                          return {
-                            value: value.trim(),
-                            label: rest.join("=").trim() || value.trim(),
-                          };
-                        }),
-                      })}
-                    rows={3}
-                    className="font-mono text-xs"
-                  />
-                </Field>
+                <>
+                  <Field
+                    label="Options"
+                    hint="One per line: value = label"
+                    className="sm:col-span-2"
+                  >
+                    <Textarea
+                      value={v.options.map((o) => (o.label ? `${o.value} = ${o.label}` : o.value))
+                        .join("\n")}
+                      onChange={(e) =>
+                        set(i, {
+                          options: e.target.value.split("\n").map((l) => l.trim()).filter(Boolean)
+                            .map((l) => {
+                              const [value, ...rest] = l.split("=");
+                              return {
+                                value: value.trim(),
+                                label: rest.join("=").trim() || value.trim(),
+                              };
+                            }),
+                        })}
+                      rows={3}
+                      className="font-mono text-xs"
+                    />
+                  </Field>
+                  <Field label="Other values">
+                    <label className="flex h-8 items-center gap-2 text-xs">
+                      <Switch
+                        checked={v.allowCustom}
+                        onCheckedChange={(c) => set(i, { allowCustom: c })}
+                      />
+                      Allow any value
+                    </label>
+                  </Field>
+                </>
               )}
               {v.type === "version" && (
                 <>
@@ -785,12 +805,13 @@ function PortsEditor(
             protocol: "tcp",
             default: 27015,
             primary: ports.length === 0,
+            follows: null,
           }])}
       />
       {ports.length === 0 && <p className="text-xs text-muted-foreground">No ports published.</p>}
       {ports.map((p, i) => (
         <Card key={i}>
-          <CardContent className="grid gap-3 pt-4 sm:grid-cols-[1fr_1fr_8rem_8rem_auto_auto]">
+          <CardContent className="grid gap-3 pt-4 sm:grid-cols-[1fr_1fr_8rem_8rem_9rem_auto_auto]">
             <Field label="Name" hint={`GSM_PORT_${p.name.toUpperCase()}`}>
               <Input
                 value={p.name}
@@ -822,6 +843,22 @@ function PortsEditor(
                 value={p.default}
                 onChange={(e) => set(i, { default: Number(e.target.value) })}
               />
+            </Field>
+            <Field label="Follows" hint="Always that port + 1">
+              <Select
+                value={p.follows ?? "none"}
+                onValueChange={(v) => set(i, { follows: v === "none" ? null : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nothing</SelectItem>
+                  {ports.slice(0, i).map((o) => (
+                    <SelectItem key={o.name} value={o.name}>{o.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="Primary">
               <div className="flex h-8 items-center">

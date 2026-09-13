@@ -129,6 +129,40 @@ func TestMergeINI(t *testing.T) {
 	}
 }
 
+func TestMergeXMLProperties(t *testing.T) {
+	in := `<?xml version="1.0"?>
+<ServerSettings>
+	<property name="ServerName"		value="My Game Host"/>		<!-- the name -->
+	<!-- <property name="SaveGameFolder" value="absolute path" /> -->
+	<property name="ServerPort" value="26900" />
+</ServerSettings>
+`
+	out := string(MergeXMLProperties([]byte(in), map[string]string{
+		"ServerName":     `Tom & "Jerry"`,
+		"ServerPort":     "30000",
+		"SaveGameFolder": "/data/saves",
+	}))
+	want := `<?xml version="1.0"?>
+<ServerSettings>
+	<property name="ServerName"		value="Tom &amp; &quot;Jerry&quot;"/>		<!-- the name -->
+	<!-- <property name="SaveGameFolder" value="absolute path" /> -->
+	<property name="ServerPort" value="30000" />
+	<property name="SaveGameFolder" value="/data/saves"/>
+</ServerSettings>
+`
+	if out != want {
+		t.Fatalf("got %s", out)
+	}
+	fresh := string(MergeXMLProperties(nil, map[string]string{"A": "1"}))
+	if fresh != "<?xml version=\"1.0\"?>\n<ServerSettings>\n\t<property name=\"A\" value=\"1\"/>\n</ServerSettings>\n" {
+		t.Fatalf("fresh file: %q", fresh)
+	}
+	oneLine := string(MergeXMLProperties([]byte(`<S><property name="A"/></S>`), map[string]string{"A": "1", "B": "2"}))
+	if oneLine != "<S><property name=\"A\" value=\"1\"/>\n\t<property name=\"B\" value=\"2\"/>\n</S>" {
+		t.Fatalf("one line: %q", oneLine)
+	}
+}
+
 func TestMergeYAML(t *testing.T) {
 	in := "# top comment\nserver:\n  port: 1 # keep me\n  name: x\nlist:\n  - a\n"
 	out, err := MergeYAML([]byte(in), map[string]string{"server.port": "9", "server.new": "yes", "top": "v"})

@@ -299,6 +299,8 @@ type Inspected struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Labels     map[string]string
+	// IPAddress is the container's address on its Docker network ("" when it has none).
+	IPAddress string
 }
 
 var ErrNotFound = errors.New("container not found")
@@ -321,6 +323,17 @@ func (c *Client) ContainerInspect(ctx context.Context, id string) (*Inspected, e
 		out.ExitCode = j.State.ExitCode
 		out.StartedAt, _ = time.Parse(time.RFC3339Nano, j.State.StartedAt)
 		out.FinishedAt, _ = time.Parse(time.RFC3339Nano, j.State.FinishedAt)
+	}
+	if j.NetworkSettings != nil {
+		// Instances run on the default bridge; prefer it when a container has several networks.
+		if n := j.NetworkSettings.Networks["bridge"]; n != nil && n.IPAddress != "" {
+			out.IPAddress = n.IPAddress
+		}
+		for _, n := range j.NetworkSettings.Networks {
+			if out.IPAddress == "" && n != nil && n.IPAddress != "" {
+				out.IPAddress = n.IPAddress
+			}
+		}
 	}
 	return out, nil
 }

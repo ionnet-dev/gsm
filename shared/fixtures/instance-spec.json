@@ -12,18 +12,48 @@
     "GSM_INSTANCE_UUID": "6f1c2a1e-9b7d-4c1a-8a0e-3d2b1c0f9e8d",
     "GSM_INSTANCE_NAME": "Survival"
   },
-  "ports": [{ "name": "game", "protocol": "tcp", "host": 30000, "container": 30000 }],
+  "ports": [
+    {
+      "name": "game",
+      "protocol": "tcp",
+      "host": 30000,
+      "container": 30000
+    }
+  ],
   "bindAddress": "0.0.0.0",
-  "limits": { "memoryMb": 4096, "cpuCores": 0, "diskMb": 0 },
-  "stop": { "command": "stop", "signal": "SIGTERM", "timeoutSeconds": 60 },
-  "console": { "readyPattern": "Done \\([0-9.]+s\\)!" },
+  "limits": {
+    "memoryMb": 4096,
+    "cpuCores": 0,
+    "diskMb": 0
+  },
+  "stop": {
+    "command": "stop",
+    "signal": "SIGTERM",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "readyPattern": "Done \\([0-9.]+s\\)!",
+    "transport": {
+      "kind": "telnet",
+      "port": 8081,
+      "password": "s3cret",
+      "ignore": "^\\d{4}-\\d{2}-\\d{2}T"
+    }
+  },
   "files": [
     {
       "path": "server.properties",
       "format": "properties",
-      "values": { "server-port": "30000", "query.port": "30000", "server-ip": "" }
+      "values": {
+        "server-port": "30000",
+        "query.port": "30000",
+        "server-ip": ""
+      }
     }
   ],
   "restartOnCrash": true,
-  "user": { "uid": 1500, "gid": 1500 }
+  "user": {
+    "uid": 1500,
+    "gid": 1500
+  }
 }

@@ -36,6 +36,7 @@ function Combobox({
   disabled,
   className,
   itemClassName,
+  allowCustom,
 }: {
   id?: string;
   value: string;
@@ -47,8 +48,13 @@ function Combobox({
   disabled?: boolean;
   className?: string;
   itemClassName?: string;
+  /** Typed text that is not one of the options can be picked as it is. */
+  allowCustom?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const typed = search.trim();
+  const offerCustom = !!allowCustom && typed !== "" && !options.some((o) => o.value === typed);
   const current = options.find((o) => o.value === value);
   const listRef = React.useRef<HTMLDivElement>(null);
   // Open with the chosen option in view; long version lists would otherwise start at the top.
@@ -58,7 +64,13 @@ function Combobox({
   }, []);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setSearch("");
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           id={id}
@@ -84,12 +96,29 @@ function Combobox({
           <CommandInput
             placeholder={searchPlaceholder}
             className="h-9 text-[13px]"
+            value={search}
             // Back to the top on each keystroke; otherwise the scroll from opening at the chosen
             // option leaves the best matches out of view.
-            onValueChange={() => listRef.current?.scrollTo({ top: 0 })}
+            onValueChange={(v) => {
+              setSearch(v);
+              listRef.current?.scrollTo({ top: 0 });
+            }}
           />
           <CommandList ref={listRef} className="relative max-h-64">
-            <CommandEmpty>{emptyText}</CommandEmpty>
+            {!offerCustom && <CommandEmpty>{emptyText}</CommandEmpty>}
+            {offerCustom && (
+              <CommandItem
+                forceMount
+                value={`\u0000custom:${typed}`}
+                onSelect={() => {
+                  onValueChange(typed);
+                  setOpen(false);
+                }}
+                className={itemClassName}
+              >
+                Use “{typed}”
+              </CommandItem>
+            )}
             {options.map((o) => (
               <CommandItem
                 key={o.value}

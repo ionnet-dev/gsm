@@ -4,6 +4,7 @@ import {
   neoforgeOptions,
   neoforgePrefix,
   parseMavenVersions,
+  steamBranchOptions,
 } from "../src/modules/templates/versions.ts";
 
 const FORGE_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -57,4 +58,40 @@ Deno.test("neoforgeOptions filters by the prefix, newest first", () => {
   assertEquals(out.map((o) => o.id), ["21.1.73-beta", "21.1.72", "21.1.70"]);
   assertEquals(out[0].kind, "beta");
   assertEquals(neoforgeOptions(parseMavenVersions(NEO_XML), "1.21").map((o) => o.id), ["21.0.167"]);
+});
+
+Deno.test("steamBranchOptions: public first, then experimental, then the rest newest first", () => {
+  const out = steamBranchOptions({
+    "alpha21.2": { buildid: "5", description: "Alpha 21.2 Stable", timebuildupdated: "1702593116" },
+    public: { buildid: "9", timebuildupdated: "1787927331" },
+    latest_experimental: {
+      buildid: "10",
+      description: "Unstable build",
+      timebuildupdated: "1787590294",
+    },
+    "v3.2.0": { buildid: "9", description: "Version 3.2.0 Stable", timebuildupdated: "1787927331" },
+    "v2.6": { buildid: "7", description: "Version 2.6 Stable", timebuildupdated: "1773951890" },
+    internal: {
+      buildid: "11",
+      description: "Testers",
+      pwdrequired: "1",
+      timebuildupdated: "1788000000",
+    },
+  });
+  assertEquals(out.map((o) => o.id), [
+    "public",
+    "latest_experimental",
+    "v3.2.0",
+    "v2.6",
+    "alpha21.2",
+  ]);
+  assertEquals(out[0].label, "public (Version 3.2.0 Stable)");
+  assertEquals(out[0].kind, "release");
+  assertEquals(out[1].kind, "experimental");
+  assertEquals(out[3], {
+    id: "v2.6",
+    label: "v2.6 (Version 2.6 Stable)",
+    kind: "old",
+    releasedAt: new Date(1773951890 * 1000).toISOString(),
+  });
 });

@@ -5,12 +5,15 @@ package instances
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +87,7 @@ type instance struct {
 	installing    bool
 	ready         *regexp.Regexp
 	attach        *docker.Attached
+	transport     *transport // console commands go here instead of stdin when the spec says so
 	stdinMu       sync.Mutex
 	logFile       *consoleLog
 	recent        *ring
@@ -275,15 +279,18 @@ func (m *Manager) consoleLine(inst *instance, text string) {
 	m.send("inst.console", protocol.InstConsoleEvent{UUID: inst.uuid, Stream: "console", Lines: []protocol.ConsoleLine{line}})
 }
 
+// flushConsole keeps a batch of game console lines and sends it to the server.
+func (m *Manager) flushConsole(inst *instance, lines []protocol.ConsoleLine) {
+	inst.recent.Add(lines...)
+	if inst.logFile != nil {
+		inst.logFile.Write(lines)
+	}
+	m.send("inst.console", protocol.InstConsoleEvent{UUID: inst.uuid, Stream: "console", Lines: lines})
+}
+
 // pump reads the attached container's output until it ends.
 func (m *Manager) pump(ctx context.Context, inst *instance, att *docker.Attached) {
-	b := newBatcher(func(lines []protocol.ConsoleLine) {
-		inst.recent.Add(lines...)
-		if inst.logFile != nil {
-			inst.logFile.Write(lines)
-		}
-		m.send("inst.console", protocol.InstConsoleEvent{UUID: inst.uuid, Stream: "console", Lines: lines})
-	})
+	b := newBatcher(func(lines []protocol.ConsoleLine) { m.flushConsole(inst, lines) })
 	handle := func(text string) {
 		b.Add(protocol.ConsoleLine{At: nowMs(), Text: text})
 		inst.mu.Lock()
@@ -342,9 +349,17 @@ func (m *Manager) Command(uuid, text string) error {
 	}
 	inst.mu.Lock()
 	att := inst.attach
+	tr := inst.transport
 	state := inst.state
 	inst.mu.Unlock()
-	if att == nil || att.Stdin == nil || (state != protocol.StateRunning && state != protocol.StateStarting && state != protocol.StateStopping) {
+	running := state == protocol.StateRunning || state == protocol.StateStarting || state == protocol.StateStopping
+	if tr != nil && running {
+		if err := tr.Send(text); err != nil {
+			return invalid("%s", err.Error())
+		}
+		return nil
+	}
+	if att == nil || att.Stdin == nil || !running {
 		return invalid("the instance is not running")
 	}
 	inst.stdinMu.Lock()
@@ -699,6 +714,10 @@ func (m *Manager) track(inst *instance, id string, att *docker.Attached, readyNo
 	inst.mu.Lock()
 	inst.containerID = id
 	inst.attach = att
+	inst.transport = nil
+	if inst.spec != nil && inst.spec.Console.Transport != nil {
+		inst.transport = m.startTransport(pctx, inst, id, *inst.spec.Console.Transport)
+	}
 	inst.cancelPump = cancel
 	inst.exited = exited
 	inst.startedAt = time.Now()
@@ -710,6 +729,37 @@ func (m *Manager) track(inst *instance, id string, att *docker.Attached, readyNo
 	inst.mu.Unlock()
 	go m.pump(pctx, inst, att)
 	go m.watch(inst, id, exited, cancel)
+}
+
+// startTransport opens the console transport for a container and keeps it open until ctx ends
+// (the container exited). Called with inst.mu held.
+func (m *Manager) startTransport(ctx context.Context, inst *instance, containerID string, spec protocol.ConsoleTransport) *transport {
+	b := newBatcher(func(lines []protocol.ConsoleLine) { m.flushConsole(inst, lines) })
+	address := func(ctx context.Context) (string, error) {
+		insp, err := m.dk.ContainerInspect(ctx, containerID)
+		if err != nil {
+			return "", err
+		}
+		if insp.IPAddress == "" {
+			return "", errors.New("the container has no network address")
+		}
+		return net.JoinHostPort(insp.IPAddress, strconv.Itoa(spec.Port)), nil
+	}
+	emit := func(text string) { b.Add(protocol.ConsoleLine{At: nowMs(), Text: text}) }
+	note := func(text string) {
+		inst.mu.Lock()
+		quiet := inst.state == protocol.StateStopping || inst.containerID != containerID
+		inst.mu.Unlock()
+		if !quiet {
+			m.consoleLine(inst, text)
+		}
+	}
+	t := newTransport(spec, address, emit, note)
+	go func() {
+		t.run(ctx)
+		b.Close()
+	}()
+	return t
 }
 
 // watch waits for the container to exit and records the outcome.
@@ -728,6 +778,7 @@ func (m *Manager) watch(inst *instance, id string, exited chan struct{}, cancelP
 		inst.attach.Close()
 		inst.attach = nil
 	}
+	inst.transport = nil
 	inst.containerID = ""
 	inst.exitCode = &code
 	requested := inst.stopRequested
@@ -823,6 +874,7 @@ func (m *Manager) stopLocked(ctx context.Context, inst *instance, force bool) (*
 	inst.stopRequested = true
 	m.setStateLocked(inst, protocol.StateStopping)
 	att := inst.attach
+	tr := inst.transport
 	inst.mu.Unlock()
 
 	wait := func(d time.Duration) bool {
@@ -845,12 +897,19 @@ func (m *Manager) stopLocked(ctx context.Context, inst *instance, force bool) (*
 			if spec.Stop.Signal != "" {
 				signal = spec.Stop.Signal
 			}
-			if spec.Stop.Command != nil && *spec.Stop.Command != "" && att != nil && att.Stdin != nil {
+			if spec.Stop.Command != nil && *spec.Stop.Command != "" && (tr != nil || (att != nil && att.Stdin != nil)) {
 				m.consoleLine(inst, "[GSM] stopping: "+*spec.Stop.Command)
-				inst.stdinMu.Lock()
-				_, err := io.WriteString(att.Stdin, *spec.Stop.Command+"\n")
-				inst.stdinMu.Unlock()
-				if err == nil && wait(timeout) {
+				var err error
+				if tr != nil {
+					err = tr.Send(*spec.Stop.Command)
+				} else {
+					inst.stdinMu.Lock()
+					_, err = io.WriteString(att.Stdin, *spec.Stop.Command+"\n")
+					inst.stdinMu.Unlock()
+				}
+				if err != nil {
+					m.consoleLine(inst, "[GSM] the stop command did not go through: "+err.Error())
+				} else if wait(timeout) {
 					return m.finalState(inst), nil
 				}
 			}

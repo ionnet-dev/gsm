@@ -4,7 +4,12 @@
  * to remember anything about an instance beyond its container and files.
  */
 import { z } from "zod";
-import { CONFIG_FILE_FORMATS, CONSOLE_STREAMS, STOP_SIGNALS } from "../enums.ts";
+import {
+  CONFIG_FILE_FORMATS,
+  CONSOLE_STREAMS,
+  CONSOLE_TRANSPORTS,
+  STOP_SIGNALS,
+} from "../enums.ts";
 
 export const InstanceUuid = z.string().uuid();
 
@@ -39,6 +44,19 @@ export const ConfigFileSpec = z.object({
 });
 export type ConfigFileSpec = z.infer<typeof ConfigFileSpec>;
 
+/**
+ * Where console commands go instead of stdin. The agent dials `port` on the container's address
+ * (it is never published on the node), signs in with `password` and turns the game's answers into
+ * console lines, leaving out those matching `ignore` (the game printed them on stdout already).
+ */
+export const ConsoleTransport = z.object({
+  kind: z.enum(CONSOLE_TRANSPORTS),
+  port: z.number().int().min(1).max(65535),
+  password: z.string().max(200),
+  ignore: z.string().max(500).nullable(),
+});
+export type ConsoleTransport = z.infer<typeof ConsoleTransport>;
+
 /** Everything the agent needs to run the instance's container. */
 export const InstanceSpec = z.object({
   uuid: InstanceUuid,
@@ -62,6 +80,8 @@ export const InstanceSpec = z.object({
   console: z.object({
     /** A regular expression a console line matches once the server is ready for players. */
     readyPattern: z.string().max(500).nullable(),
+    /** Commands (and the stop command) go here instead of stdin; null for stdin. */
+    transport: ConsoleTransport.nullable().default(null),
   }),
   files: z.array(ConfigFileSpec).max(32),
   /** Start the container again when it exits with a non-zero code the operator did not ask for. */

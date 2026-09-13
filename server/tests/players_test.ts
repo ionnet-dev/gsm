@@ -25,6 +25,7 @@ Deno.test("the built-in Minecraft templates track players; the generic one does 
     assert(def.players, slug);
     compileMatcher(def.players);
   }
+  compileMatcher(load("7-days-to-die").players!);
   assertEquals(load("custom-generic").players, null);
 });
 
@@ -215,4 +216,156 @@ Deno.test("the template schema refuses broken player sections", () => {
   assert(bad({ ...players, actions: [{ ...msg, when: { list: "nope", is: true } }] }));
   assert(bad({ ...players, actions: [{ ...msg, command: "say a\nop b" }] }));
   assert(bad({ ...players, actions: [msg, msg] }));
+});
+
+// ---- 7 Days to Die --------------------------------------------------------------------------
+
+const sdtd = load("7-days-to-die").players!;
+const STEAM = "Steam_76561198000000001";
+const at = (text: string) => `2026-09-13T21:30:00 123.456 INF ${text}`;
+const client = (name: string, id = STEAM) =>
+  `EntityID=171, PltfmId='${id}', CrossId='EOS_0002604bc42244e099c1bf05145fb71f', OwnerID='${id}', PlayerName='${name}', ClientNumber='1'`;
+
+Deno.test("7 Days to Die: joins and leaves come from the spawn and disconnect lines", () => {
+  const m7 = compileMatcher(sdtd);
+  assertEquals(
+    m7.match(
+      at(
+        `PlayerSpawnedInWorld (reason: JoinMultiplayer, position: -1234, 61, 567): ${
+          client("Alloc Fan")
+        }`,
+      ),
+    ),
+    { type: "join", name: "Alloc Fan", id: STEAM },
+  );
+  assertEquals(
+    m7.match(
+      at(
+        `PlayerSpawnedInWorld (reason: EnterMultiplayer, position: (1.0, 2.0, 3.0)): ${
+          client("Bob")
+        }`,
+      ),
+    ),
+    { type: "join", name: "Bob", id: STEAM },
+  );
+  assertEquals(m7.match(at(`Player disconnected: ${client("Alloc Fan")}`)), {
+    type: "leave",
+    name: "Alloc Fan",
+  });
+  for (
+    const line of [
+      // A respawn after dying or teleporting is not a join.
+      at(`PlayerSpawnedInWorld (reason: Died, position: 1, 2, 3): ${client("Bob")}`),
+      // Chat, announcements and the game's own summary lines are not either.
+      at(
+        `Chat (from '${STEAM}', entity id '171', to 'Global'): 'Bob': PlayerSpawnedInWorld (reason: JoinMultiplayer, position: 0): ${
+          client("Fake")
+        }`,
+      ),
+      at("GMSG: Player 'Bob' joined the game"),
+      at("Player Bob disconnected after 12.3 minutes"),
+      `PlayerSpawnedInWorld (reason: JoinMultiplayer, position: 0): ${client("NoPrefix")}`,
+    ]
+  ) {
+    assertEquals(m7.match(line), null, line);
+  }
+});
+
+Deno.test("7 Days to Die: the lp answer spans a line per player", () => {
+  let now = 1_000_000;
+  const m7 = compileMatcher(sdtd, () => now);
+  const lp = (n: number, name: string, id: string) =>
+    `  ${n}. id=${
+      171 + n
+    }, ${name}, pos=(-1234.5, 61.1, 567.8), remote=True, pltfmid=${id}, crossid=EOS_0002, ip=1.2.3.4, ping=30`;
+  assertEquals(m7.match(lp(0, "Alloc Fan", STEAM)), null);
+  assertEquals(m7.match(lp(1, "Bob, the builder", "EOS_0002abc")), null);
+  assertEquals(m7.match("Total of 2 in the game"), {
+    type: "list",
+    players: [{ name: "Alloc Fan", id: STEAM }, { name: "Bob, the builder", id: "EOS_0002abc" }],
+  });
+  assertEquals(m7.match("Total of 0 in the game"), { type: "list", players: [] });
+  // `le` ends with the same line: a count that disagrees with the player lines is ignored.
+  assertEquals(m7.match("Total of 5 in the game"), null);
+  // Lines from an answer long gone do not leak into the next one.
+  m7.match(lp(0, "Stale", STEAM));
+  now += 60_000;
+  assertEquals(m7.match("Total of 0 in the game"), { type: "list", players: [] });
+});
+
+// The layout of the file the game wrote, with its commented-out examples.
+const SERVERADMIN = `<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This file holds the settings for who is banned, whitelisted, admins and server command permissions.
+-->
+<adminTools>
+  <!-- Name in any entries is optional for display purposes only -->
+  <users>
+    <!-- <user platform="Steam" userid="76561198021925107" name="Hint on who this user is" permission_level="0" /> -->
+    <!-- <group steamID="103582791434672565" name="Steam Universe" permission_level_default="1000" permission_level_mod="0" /> -->
+    <user platform="Steam" userid="76561198000000001" name="Probe &amp; Admin" permission_level="0" />
+    <user platform="EOS" userid="0002604bc42244e099c1bf05145fb71f" permission_level="100" />
+  </users>
+  <whitelist>
+    <!-- <user platform="" userid="" name="" /> -->
+  </whitelist>
+  <blacklist>
+    <blacklisted platform="Steam" userid="76561198000000003" name="Probe Griefer" unbandate="2026-09-13 21:10:38" reason="testing the panel" />
+  </blacklist>
+  <apitokens>
+    <token name="gsmpanel" secret="s3cretT0ken" permission_level="0" />
+  </apitokens>
+</adminTools>
+`;
+
+Deno.test("7 Days to Die: admins, whitelist and bans come from serveradmin.xml", () => {
+  const list = (id: string) => sdtd.lists.find((l) => l.id === id)!;
+  assertEquals(parseListFile(list("admins"), SERVERADMIN), [
+    {
+      name: "Probe & Admin",
+      id: "Steam_76561198000000001",
+      values: { permission_level: "0" },
+    },
+    // No display name: the id stands in.
+    {
+      name: "EOS_0002604bc42244e099c1bf05145fb71f",
+      id: "EOS_0002604bc42244e099c1bf05145fb71f",
+      values: { permission_level: "100" },
+    },
+  ]);
+  assertEquals(parseListFile(list("whitelist"), SERVERADMIN), []);
+  assertEquals(parseListFile(list("banned"), SERVERADMIN), [{
+    name: "Probe Griefer",
+    id: "Steam_76561198000000003",
+    values: { reason: "testing the panel", unbandate: "2026-09-13 21:10:38" },
+  }]);
+  assertEquals(parseListFile(list("banned"), ""), []);
+});
+
+Deno.test("7 Days to Die: actions quote names and drop empty optional values", () => {
+  const valid = nameValidator(sdtd.namePattern);
+  const action = (id: string) => sdtd.actions.find((a) => a.id === id)!;
+  const bob: SeenPlayer = { name: "Bob the Builder", id: STEAM };
+  assertEquals(buildActionCommand(action("kick"), bob, {}, valid), {
+    ok: true,
+    command: `kick "${STEAM}"`,
+  });
+  assertEquals(buildActionCommand(action("kick"), bob, { REASON: 'say "please" nicely' }, valid), {
+    ok: true,
+    command: `kick "${STEAM}" "say 'please' nicely"`,
+  });
+  assertEquals(buildActionCommand(action("ban"), bob, { UNIT: "weeks" }, valid), {
+    ok: true,
+    command: `ban add "${STEAM}" 7 weeks "Banned by an admin" "Bob the Builder"`,
+  });
+  assertEquals(
+    buildActionCommand(action("give"), bob, { ITEM: "gunPistol", COUNT: "1", QUALITY: "6" }, valid),
+    {
+      ok: true,
+      command: `give "Bob the Builder" gunPistol 1 6`,
+    },
+  );
+  // Names with a double quote could end the quoted argument early; they are refused.
+  assertEquals(valid('Bob "x'), false);
+  assertEquals(valid("Bob, the builder"), true);
 });

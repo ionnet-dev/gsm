@@ -1,0 +1,829 @@
+{
+  "schemaVersion": 1,
+  "slug": "7-days-to-die",
+  "name": "7 Days to Die",
+  "game": "7 Days to Die",
+  "description": "The 7 Days to Die dedicated server, installed from Steam with SteamCMD. Pick a Steam branch (the stable release, experimental or an older version), a world and the rules. Console commands and player management go through the game's telnet console, which only the node's agent can reach.",
+  "icon": "🧟",
+  "tags": [
+    "7-days-to-die",
+    "steam",
+    "survival"
+  ],
+  "image": "ghcr.io/ionnet-dev/gsm-steamcmd:latest",
+  "images": [],
+  "install": {
+    "image": null,
+    "script": "#!/bin/sh\n# Ionnet GSM install: 7 Days to Die dedicated server from Steam (app 294420). Runs as the instance\n# user in /data; SteamCMD keeps its own files in /data/Steam.\nset -eu\ncd /data\nBRANCH=\"${GAME_BRANCH:-public}\"\ncase \"$BRANCH\" in\n  \"\" | *[!A-Za-z0-9._-]*) echo \"Invalid Steam branch: $BRANCH\" >&2; exit 1 ;;\nesac\nset -- +force_install_dir /data/server +login anonymous +app_update 294420\n[ \"$BRANCH\" = public ] || set -- \"$@\" -beta \"$BRANCH\"\nset -- \"$@\" validate +quit\necho \"Installing 7 Days to Die (branch $BRANCH) with SteamCMD. The first download is about 17 GB.\"\ntries=1\nuntil steamcmd \"$@\"; do\n  [ \"$tries\" -lt 3 ] || { echo \"SteamCMD failed $tries times; giving up.\" >&2; exit 1; }\n  tries=$((tries + 1))\n  echo \"SteamCMD failed; trying again in 10 seconds ($tries/3) ...\"\n  sleep 10\ndone\n[ -x server/7DaysToDieServer.x86_64 ] || { echo \"The server binary is missing after the install.\" >&2; exit 1; }\nmkdir -p UserData/GeneratedWorlds\n# The panel keeps its settings in /data/serverconfig.xml; start from the shipped one.\n[ -f serverconfig.xml ] || cp server/serverconfig.xml serverconfig.xml\necho \"Install complete.\"\n",
+    "resolver": null,
+    "timeoutSeconds": 7200
+  },
+  "startup": "ulimit -n 16384 2>/dev/null; cd /data/server && export LD_LIBRARY_PATH=. && exec ./7DaysToDieServer.x86_64 -logfile /dev/stdout -quit -batchmode -nographics -dedicated -configfile=/data/serverconfig.xml",
+  "stop": {
+    "command": "shutdown",
+    "signal": "SIGTERM",
+    "timeoutSeconds": 120
+  },
+  "console": {
+    "readyPattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2} \\d+\\.\\d+ INF StartGame done",
+    "transport": {
+      "kind": "telnet",
+      "port": 8081,
+      "password": "{{GSM_CONSOLE_PASSWORD}}",
+      "ignore": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2} \\S+ [A-Z]{3} |\\*\\*\\* |Logon successful\\.|Server IP: |Server port: |Max players: |Game mode: |World: |Game name: |Difficulty: |Press 'help')"
+    }
+  },
+  "variables": [
+    {
+      "name": "GAME_BRANCH",
+      "label": "Game version (Steam branch)",
+      "type": "version",
+      "default": "public",
+      "description": "public is the current stable release and latest_experimental the next one; older versions (v2.6, alpha21.2, ...) stay available. Changing it needs a reinstall, and a save from a newer version may not load in an older one.",
+      "required": true,
+      "editable": false,
+      "versionSource": "steam:294420",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    {
+      "name": "SERVER_NAME",
+      "label": "Server name",
+      "type": "text",
+      "default": "My 7 Days to Die server",
+      "description": "Shown in the server browser.",
+      "required": true
+    },
+    {
+      "name": "SERVER_DESCRIPTION",
+      "label": "Description",
+      "type": "text",
+      "default": "A 7 Days to Die server",
+      "description": "Shown in the server browser."
+    },
+    {
+      "name": "SERVER_PASSWORD",
+      "label": "Join password",
+      "type": "text",
+      "default": "",
+      "description": "Players need it to join. Empty for an open server."
+    },
+    {
+      "name": "MAX_PLAYERS",
+      "label": "Max players",
+      "type": "number",
+      "default": "8",
+      "required": true,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "VISIBILITY",
+      "label": "Server browser",
+      "type": "select",
+      "default": "2",
+      "description": "Not listed: players join by address only.",
+      "options": [
+        {
+          "value": "2",
+          "label": "Public"
+        },
+        {
+          "value": "1",
+          "label": "Friends only"
+        },
+        {
+          "value": "0",
+          "label": "Not listed"
+        }
+      ]
+    },
+    {
+      "name": "REGION",
+      "label": "Region",
+      "type": "select",
+      "default": "NorthAmericaEast",
+      "options": [
+        {
+          "value": "NorthAmericaEast",
+          "label": "North America (east)"
+        },
+        {
+          "value": "NorthAmericaWest",
+          "label": "North America (west)"
+        },
+        {
+          "value": "CentralAmerica",
+          "label": "Central America"
+        },
+        {
+          "value": "SouthAmerica",
+          "label": "South America"
+        },
+        {
+          "value": "Europe",
+          "label": "Europe"
+        },
+        {
+          "value": "Russia",
+          "label": "Russia"
+        },
+        {
+          "value": "Asia",
+          "label": "Asia"
+        },
+        {
+          "value": "MiddleEast",
+          "label": "Middle East"
+        },
+        {
+          "value": "Africa",
+          "label": "Africa"
+        },
+        {
+          "value": "Oceania",
+          "label": "Oceania"
+        }
+      ]
+    },
+    {
+      "name": "LANGUAGE",
+      "label": "Language",
+      "type": "text",
+      "default": "English",
+      "description": "The main language on the server, in English (German, not Deutsch)."
+    },
+    {
+      "name": "SERVER_WEBSITE",
+      "label": "Website",
+      "type": "text",
+      "default": "",
+      "description": "A link shown in the server browser."
+    },
+    {
+      "name": "GAME_WORLD",
+      "label": "World",
+      "type": "select",
+      "default": "Navezgane",
+      "description": "RWG generates a world on first start, which takes several minutes. For your own world, upload it to UserData/GeneratedWorlds/<name> and type its name.",
+      "group": "World",
+      "allowCustom": true,
+      "required": true,
+      "pattern": "^[A-Za-z0-9_. -]{1,64}$",
+      "options": [
+        {
+          "value": "Navezgane",
+          "label": "Navezgane (hand-made map)"
+        },
+        {
+          "value": "RWG",
+          "label": "RWG (random world from the seed and size)"
+        },
+        {
+          "value": "Pregen06k01",
+          "label": "Pregen06k01 (6k, pregenerated)"
+        },
+        {
+          "value": "Pregen06k02",
+          "label": "Pregen06k02 (6k, pregenerated)"
+        },
+        {
+          "value": "Pregen08k01",
+          "label": "Pregen08k01 (8k, pregenerated)"
+        },
+        {
+          "value": "Pregen08k02",
+          "label": "Pregen08k02 (8k, pregenerated)"
+        }
+      ]
+    },
+    {
+      "name": "WORLD_SEED",
+      "label": "World seed",
+      "type": "text",
+      "default": "Ionnet",
+      "description": "RWG only: the same seed and size make the same world; an existing world of that name is loaded.",
+      "group": "World",
+      "pattern": "^[^\\\"]{0,64}$"
+    },
+    {
+      "name": "WORLD_SIZE",
+      "label": "World size",
+      "type": "select",
+      "default": "6144",
+      "description": "RWG only. Larger worlds need more memory and take longer to generate.",
+      "group": "World",
+      "options": [
+        {
+          "value": "6144",
+          "label": "6144 (small)"
+        },
+        {
+          "value": "8192",
+          "label": "8192 (medium)"
+        },
+        {
+          "value": "10240",
+          "label": "10240 (large)"
+        }
+      ]
+    },
+    {
+      "name": "GAME_NAME",
+      "label": "Save name",
+      "type": "text",
+      "default": "MyGame",
+      "description": "The save game. A new name starts a new save on the same world; the old one stays on disk.",
+      "group": "World",
+      "required": true,
+      "pattern": "^[A-Za-z0-9_. -]{1,64}$"
+    },
+    {
+      "name": "DIFFICULTY",
+      "label": "Difficulty",
+      "type": "select",
+      "default": "1",
+      "group": "Rules",
+      "options": [
+        {
+          "value": "0",
+          "label": "Scavenger"
+        },
+        {
+          "value": "1",
+          "label": "Adventurer"
+        },
+        {
+          "value": "2",
+          "label": "Nomad"
+        },
+        {
+          "value": "3",
+          "label": "Warrior"
+        },
+        {
+          "value": "4",
+          "label": "Survivalist"
+        },
+        {
+          "value": "5",
+          "label": "Insane"
+        }
+      ]
+    },
+    {
+      "name": "SANDBOX_CODE",
+      "label": "Sandbox code",
+      "type": "text",
+      "default": "AAAJABJACJADJARFBNC",
+      "description": "Since version 3.0 most rules (day length, loot, XP, blood moons, zombie speed) come from this code. In the game: New Game, Sandbox options, set them up, Copy code, and paste it here.",
+      "group": "Rules",
+      "pattern": "^[A-Za-z0-9]{0,64}$"
+    },
+    {
+      "name": "PVP",
+      "label": "Player killing",
+      "type": "select",
+      "default": "3",
+      "group": "Rules",
+      "options": [
+        {
+          "value": "0",
+          "label": "No killing"
+        },
+        {
+          "value": "1",
+          "label": "Allies only"
+        },
+        {
+          "value": "2",
+          "label": "Strangers only"
+        },
+        {
+          "value": "3",
+          "label": "Everyone"
+        }
+      ]
+    },
+    {
+      "name": "CHEAT_MODE",
+      "label": "Cheat mode",
+      "type": "boolean",
+      "default": "false",
+      "description": "The creative menu and debug tools for everyone.",
+      "group": "Rules"
+    },
+    {
+      "name": "LAND_CLAIMS",
+      "label": "Land claims per player",
+      "type": "number",
+      "default": "5",
+      "group": "Rules",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "LAND_CLAIM_SIZE",
+      "label": "Land claim size (blocks)",
+      "type": "number",
+      "default": "41",
+      "group": "Rules",
+      "min": 1,
+      "max": 201
+    },
+    {
+      "name": "LAND_CLAIM_EXPIRY",
+      "label": "Land claim expiry (days offline)",
+      "type": "number",
+      "default": "7",
+      "group": "Rules",
+      "min": 1,
+      "max": 3650
+    },
+    {
+      "name": "MAX_ZOMBIES",
+      "label": "Max zombies",
+      "type": "number",
+      "default": "64",
+      "description": "For the whole world. More zombies cost a lot of CPU.",
+      "group": "Performance",
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "MAX_ANIMALS",
+      "label": "Max animals",
+      "type": "number",
+      "default": "50",
+      "group": "Performance",
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "VIEW_DISTANCE",
+      "label": "Max view distance (chunks)",
+      "type": "number",
+      "default": "12",
+      "description": "The furthest a player may see. High values use much more memory.",
+      "group": "Performance",
+      "min": 6,
+      "max": 12
+    },
+    {
+      "name": "EAC",
+      "label": "EasyAntiCheat",
+      "type": "boolean",
+      "default": "true",
+      "description": "Most mods need it off. Mods go in server/Mods (file manager or SFTP).",
+      "group": "Access & anti-cheat"
+    },
+    {
+      "name": "CROSSPLAY",
+      "label": "Crossplay",
+      "type": "boolean",
+      "default": "false",
+      "description": "Lets console players join. Needs EasyAntiCheat on, no mods and at most 8 slots.",
+      "group": "Access & anti-cheat"
+    },
+    {
+      "name": "HIDE_COMMAND_LOG",
+      "label": "Hide console commands from the log",
+      "type": "select",
+      "default": "1",
+      "description": "The panel sends its commands, such as player actions, over telnet.",
+      "group": "Access & anti-cheat",
+      "options": [
+        {
+          "value": "0",
+          "label": "Log every command"
+        },
+        {
+          "value": "1",
+          "label": "Hide commands from telnet (the panel)"
+        },
+        {
+          "value": "2",
+          "label": "Also hide commands from players"
+        },
+        {
+          "value": "3",
+          "label": "Hide every command"
+        }
+      ]
+    },
+    {
+      "name": "DASHBOARD_ENABLED",
+      "label": "Web dashboard",
+      "type": "boolean",
+      "default": "false",
+      "description": "The game's own dashboard with a live map, on the dashboard port. Sign in with a dashboard account: an admin makes one in the game's console (F1) with createwebuser.",
+      "group": "Web dashboard"
+    },
+    {
+      "name": "MAP_RENDERING",
+      "label": "Render the map",
+      "type": "boolean",
+      "default": "false",
+      "description": "Draws map tiles as players explore, for the dashboard's map. Costs some CPU and disk.",
+      "group": "Web dashboard"
+    },
+    {
+      "name": "DASHBOARD_URL",
+      "label": "Dashboard address",
+      "type": "text",
+      "default": "",
+      "description": "The dashboard's public URL when it sits behind a reverse proxy, like https://map.example.com/.",
+      "group": "Web dashboard"
+    }
+  ],
+  "ports": [
+    {
+      "name": "game",
+      "label": "Game port",
+      "protocol": "both",
+      "default": 26900,
+      "primary": true
+    },
+    {
+      "name": "game_2",
+      "label": "Game port + 1",
+      "protocol": "udp",
+      "default": 26901,
+      "follows": "game"
+    },
+    {
+      "name": "game_3",
+      "label": "Game port + 2",
+      "protocol": "udp",
+      "default": 26902,
+      "follows": "game_2"
+    },
+    {
+      "name": "dashboard",
+      "label": "Web dashboard",
+      "protocol": "tcp",
+      "default": 8080
+    }
+  ],
+  "files": [
+    {
+      "path": "serverconfig.xml",
+      "format": "xml-properties",
+      "values": {
+        "ServerName": "{{SERVER_NAME}}",
+        "ServerDescription": "{{SERVER_DESCRIPTION}}",
+        "ServerWebsiteURL": "{{SERVER_WEBSITE}}",
+        "ServerPassword": "{{SERVER_PASSWORD}}",
+        "Region": "{{REGION}}",
+        "Language": "{{LANGUAGE}}",
+        "ServerPort": "{{GSM_PORT_GAME}}",
+        "ServerVisibility": "{{VISIBILITY}}",
+        "ServerMaxPlayerCount": "{{MAX_PLAYERS}}",
+        "WebDashboardEnabled": "{{DASHBOARD_ENABLED}}",
+        "WebDashboardPort": "{{GSM_PORT_DASHBOARD}}",
+        "WebDashboardUrl": "{{DASHBOARD_URL}}",
+        "EnableMapRendering": "{{MAP_RENDERING}}",
+        "TelnetEnabled": "true",
+        "TelnetPort": "8081",
+        "TelnetPassword": "{{GSM_CONSOLE_PASSWORD}}",
+        "UserDataFolder": "/data/UserData",
+        "ServerAllowCrossplay": "{{CROSSPLAY}}",
+        "EACEnabled": "{{EAC}}",
+        "HideCommandExecutionLog": "{{HIDE_COMMAND_LOG}}",
+        "GameWorld": "{{GAME_WORLD}}",
+        "WorldGenSeed": "{{WORLD_SEED}}",
+        "WorldGenSize": "{{WORLD_SIZE}}",
+        "GameName": "{{GAME_NAME}}",
+        "GameDifficulty": "{{DIFFICULTY}}",
+        "SandboxCode": "{{SANDBOX_CODE}}",
+        "PlayerKillingMode": "{{PVP}}",
+        "BuildCreate": "{{CHEAT_MODE}}",
+        "LandClaimCount": "{{LAND_CLAIMS}}",
+        "LandClaimSize": "{{LAND_CLAIM_SIZE}}",
+        "LandClaimExpiryTime": "{{LAND_CLAIM_EXPIRY}}",
+        "MaxSpawnedZombies": "{{MAX_ZOMBIES}}",
+        "MaxSpawnedAnimals": "{{MAX_ANIMALS}}",
+        "ServerMaxAllowedViewDistance": "{{VIEW_DISTANCE}}"
+      }
+    }
+  ],
+  "resources": {
+    "memoryMb": 8192,
+    "cpuCores": 0,
+    "diskMb": 0
+  },
+  "restartOnCrash": true,
+  "backupIgnore": [
+    "server/Data/**",
+    "server/7DaysToDieServer_Data/**",
+    "server/steamapps/**",
+    "server/Licenses/**",
+    "server/Logos/**",
+    "server/*.so",
+    "server/*.so.*",
+    "server/7DaysToDieServer.x86_64",
+    "Steam/**",
+    ".steam/**",
+    "UserData/RfsCache/**",
+    "UserData/titlestorage/**"
+  ],
+  "players": {
+    "namePattern": "^[^\\x00-\\x1f\"]{1,64}$",
+    "console": {
+      "join": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2} \\d+\\.\\d+ INF PlayerSpawnedInWorld \\(reason: (?:JoinMultiplayer|EnterMultiplayer), position: .*?\\): EntityID=-?\\d+, PltfmId='(?<id>[^']*)', CrossId='[^']*', OwnerID='[^']*', PlayerName='(?<name>.*)', ClientNumber='\\d+'$",
+      "leave": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2} \\d+\\.\\d+ INF Player disconnected: EntityID=-?\\d+, PltfmId='[^']*', CrossId='[^']*', OwnerID='[^']*', PlayerName='(?<name>.*)', ClientNumber='\\d+'$",
+      "identify": null,
+      "refresh": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2} \\d+\\.\\d+ INF Executing command '(?:admin|ban|whitelist) (?:add|remove) "
+    },
+    "list": {
+      "command": "lp",
+      "pattern": "^Total of (?<count>\\d+) in the game$",
+      "line": "^\\s*\\d+\\. id=-?\\d+, (?<name>.*), pos=\\(.*\\), remote=\\w+, pltfmid=(?<id>[^,]*), crossid="
+    },
+    "lists": [
+      {
+        "id": "admins",
+        "label": "Admins",
+        "badge": "Admin",
+        "path": "UserData/Saves/serveradmin.xml",
+        "format": "xml",
+        "element": "users/user",
+        "nameKey": "name",
+        "idFormat": "{{platform}}_{{userid}}",
+        "columns": [
+          {
+            "key": "permission_level",
+            "label": "Permission level"
+          }
+        ]
+      },
+      {
+        "id": "whitelist",
+        "label": "Whitelist",
+        "badge": "Whitelisted",
+        "path": "UserData/Saves/serveradmin.xml",
+        "format": "xml",
+        "element": "whitelist/user",
+        "nameKey": "name",
+        "idFormat": "{{platform}}_{{userid}}",
+        "columns": []
+      },
+      {
+        "id": "banned",
+        "label": "Banned",
+        "badge": "Banned",
+        "path": "UserData/Saves/serveradmin.xml",
+        "format": "xml",
+        "element": "blacklist/blacklisted",
+        "nameKey": "name",
+        "idFormat": "{{platform}}_{{userid}}",
+        "columns": [
+          {
+            "key": "reason",
+            "label": "Reason"
+          },
+          {
+            "key": "unbandate",
+            "label": "Banned until"
+          }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "message",
+        "label": "Send a message",
+        "group": "Player",
+        "icon": "message",
+        "online": true,
+        "command": "pm \"{{PLAYER}}\" \"{{MESSAGE}}\"",
+        "fields": [
+          {
+            "name": "MESSAGE",
+            "label": "Message",
+            "type": "text",
+            "required": true,
+            "placeholder": "Hello from the panel"
+          }
+        ]
+      },
+      {
+        "id": "teleport",
+        "label": "Teleport to a player",
+        "group": "Player",
+        "icon": "teleport",
+        "online": true,
+        "command": "teleportplayer \"{{PLAYER_ID}}\" \"{{TARGET}}\"",
+        "fields": [
+          {
+            "name": "TARGET",
+            "label": "Teleport to",
+            "type": "player",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "give",
+        "label": "Give an item",
+        "group": "Player",
+        "icon": "give",
+        "online": true,
+        "command": "give \"{{PLAYER}}\" {{ITEM}} {{COUNT}} {{QUALITY}}",
+        "fields": [
+          {
+            "name": "ITEM",
+            "label": "Item",
+            "type": "text",
+            "required": true,
+            "default": "resourceWood",
+            "placeholder": "resourceWood"
+          },
+          {
+            "name": "COUNT",
+            "label": "Amount",
+            "type": "number",
+            "required": true,
+            "default": "1",
+            "min": 1,
+            "max": 10000
+          },
+          {
+            "name": "QUALITY",
+            "label": "Quality",
+            "type": "number",
+            "min": 1,
+            "max": 6,
+            "placeholder": "For tools and weapons"
+          }
+        ]
+      },
+      {
+        "id": "givexp",
+        "label": "Give experience",
+        "group": "Player",
+        "icon": "give",
+        "online": true,
+        "command": "givexp \"{{PLAYER_ID}}\" {{AMOUNT}}",
+        "fields": [
+          {
+            "name": "AMOUNT",
+            "label": "Experience points",
+            "type": "number",
+            "required": true,
+            "default": "1000",
+            "min": 1,
+            "max": 10000000
+          }
+        ]
+      },
+      {
+        "id": "kick",
+        "label": "Kick",
+        "group": "Moderation",
+        "icon": "kick",
+        "online": true,
+        "danger": true,
+        "command": "kick \"{{PLAYER_ID}}\" \"{{REASON}}\"",
+        "fields": [
+          {
+            "name": "REASON",
+            "label": "Reason",
+            "type": "text",
+            "placeholder": "Shown to the player"
+          }
+        ]
+      },
+      {
+        "id": "ban",
+        "label": "Ban",
+        "group": "Moderation",
+        "icon": "ban",
+        "danger": true,
+        "command": "ban add \"{{PLAYER_ID}}\" {{DURATION}} {{UNIT}} \"{{REASON}}\" \"{{PLAYER}}\"",
+        "when": {
+          "list": "banned",
+          "is": false
+        },
+        "fields": [
+          {
+            "name": "DURATION",
+            "label": "For",
+            "type": "number",
+            "required": true,
+            "default": "7",
+            "min": 1,
+            "max": 1000
+          },
+          {
+            "name": "UNIT",
+            "label": "Unit",
+            "type": "select",
+            "required": true,
+            "default": "days",
+            "options": [
+              {
+                "value": "minutes",
+                "label": "Minutes"
+              },
+              {
+                "value": "hours",
+                "label": "Hours"
+              },
+              {
+                "value": "days",
+                "label": "Days"
+              },
+              {
+                "value": "weeks",
+                "label": "Weeks"
+              },
+              {
+                "value": "months",
+                "label": "Months"
+              },
+              {
+                "value": "years",
+                "label": "Years"
+              }
+            ]
+          },
+          {
+            "name": "REASON",
+            "label": "Reason",
+            "type": "text",
+            "required": true,
+            "default": "Banned by an admin"
+          }
+        ]
+      },
+      {
+        "id": "unban",
+        "label": "Unban",
+        "group": "Moderation",
+        "icon": "unban",
+        "command": "ban remove \"{{PLAYER_ID}}\"",
+        "when": {
+          "list": "banned",
+          "is": true
+        }
+      },
+      {
+        "id": "admin-add",
+        "label": "Make admin",
+        "group": "Permissions",
+        "icon": "op",
+        "danger": true,
+        "command": "admin add \"{{PLAYER_ID}}\" {{LEVEL}} \"{{PLAYER}}\"",
+        "when": {
+          "list": "admins",
+          "is": false
+        },
+        "fields": [
+          {
+            "name": "LEVEL",
+            "label": "Permission level",
+            "type": "number",
+            "required": true,
+            "default": "0",
+            "min": 0,
+            "max": 1000,
+            "placeholder": "0 is full control"
+          }
+        ]
+      },
+      {
+        "id": "admin-remove",
+        "label": "Remove admin",
+        "group": "Permissions",
+        "icon": "deop",
+        "command": "admin remove \"{{PLAYER_ID}}\"",
+        "when": {
+          "list": "admins",
+          "is": true
+        }
+      },
+      {
+        "id": "whitelist-add",
+        "label": "Add to whitelist",
+        "group": "Permissions",
+        "icon": "whitelist",
+        "command": "whitelist add \"{{PLAYER_ID}}\" \"{{PLAYER}}\"",
+        "when": {
+          "list": "whitelist",
+          "is": false
+        }
+      },
+      {
+        "id": "whitelist-remove",
+        "label": "Remove from whitelist",
+        "group": "Permissions",
+        "icon": "unwhitelist",
+        "command": "whitelist remove \"{{PLAYER_ID}}\"",
+        "when": {
+          "list": "whitelist",
+          "is": true
+        }
+      }
+    ]
+  }
+}

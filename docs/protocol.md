@@ -38,7 +38,7 @@ named there; this table is the overview.
 | `inst.start`              | `{ spec }`                        | `InstanceState`                                                             |
 | `inst.stop`               | `{ uuid, force }`                 | `InstanceState` (after the exit)                                            |
 | `inst.restart`            | `{ spec }`                        | `InstanceState`                                                             |
-| `inst.command`            | `{ uuid, command }`               | `{}` — written to the game's stdin                                          |
+| `inst.command`            | `{ uuid, command }`               | `{}` — written to the game's stdin, or its console transport                |
 | `inst.consoleTail`        | `{ uuid, stream, lines }`         | `{ lines: ConsoleLine[] }` from the node's log file                         |
 | `inst.remove`             | `{ uuid, deleteFiles }`           | `{}`                                                                        |
 | `inst.stats`              | `{ uuids }`                       | `{ stats: InstanceStats[] }`                                                |
@@ -60,10 +60,11 @@ named there; this table is the overview.
 
 Every `inst.install`, `inst.start` and `inst.restart` carries the complete `InstanceSpec`
 (`shared/src/protocol/instances.ts`): image, startup command, environment, port bindings, bind
-address, limits, stop behaviour, ready pattern, config files to write, crash policy and the
-container user. The agent stores the last spec it saw per instance under `<data_dir>/state/` so a
-restarted agent can still stop an instance gracefully, but the server is the source of truth and
-resends the spec with every start.
+address, limits, stop behaviour, ready pattern, console transport, config files to write
+(`properties`, `json`, `ini`, `yaml` or `xml-properties`), crash policy and the container user. The
+agent stores the last spec it saw per instance under `<data_dir>/state/` so a restarted agent can
+still stop an instance gracefully, but the server is the source of truth and resends the spec with
+every start.
 
 ### Console and states
 
@@ -79,9 +80,21 @@ is `console` for the game and `install` for install runs), appending the same li
   minutes and says so on the console;
 - `installing` while an install container runs.
 
-Stopping: the stop command (if any) is typed into stdin, the agent waits `stop.timeoutSeconds`, then
-sends `stop.signal` and, ten seconds later, SIGKILL. `inst.stop` with `force` goes straight to
-SIGKILL.
+Stopping: the stop command (if any) is typed into stdin (or sent over the console transport), the
+agent waits `stop.timeoutSeconds`, then sends `stop.signal` and, ten seconds later, SIGKILL.
+`inst.stop` with `force` goes straight to SIGKILL.
+
+### Console transport
+
+With `console.transport` in the spec (`kind` `telnet` or `rcon`, `port`, `password`, `ignore`), the
+agent opens a session to `port` on the container's address on its Docker network once the container
+runs; the port is never published on the node. It retries every 2 s until the game listens and
+reconnects when the session drops; a refused password waits a minute. Telnet: the password answers
+the first prompt that mentions it (or goes out after 10 s of silence) and option negotiation is
+dropped. RCON is Source RCON: an auth packet, then one exec packet per command. `inst.command` and
+the stop command go into the session (`invalid_params` while it is not connected), and every answer
+line becomes a game console line, except lines matching `ignore`. The console shows
+`[GSM] console connected (telnet)` and a note when the connection is lost.
 
 ## Agent → server events
 

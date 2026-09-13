@@ -55,6 +55,9 @@ func TestInstanceSpecFixture(t *testing.T) {
 	if spec.Console.ReadyPattern == nil || spec.Limits.MemoryMb != 4096 || spec.User.UID != 1500 {
 		t.Fatalf("unexpected spec: %+v", spec)
 	}
+	if tr := spec.Console.Transport; tr == nil || tr.Kind != "telnet" || tr.Port != 8081 || tr.Password != "s3cret" || tr.Ignore == nil {
+		t.Fatalf("unexpected console transport: %+v", spec.Console.Transport)
+	}
 	if len(spec.Ports) != 1 || spec.Ports[0].Host != 30000 || len(spec.Files) != 1 || spec.Files[0].Values["server-port"] != "30000" {
 		t.Fatalf("unexpected spec: %+v", spec)
 	}

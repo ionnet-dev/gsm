@@ -386,12 +386,12 @@ export async function update(
     if (input.ports !== undefined) {
       const node = i.node!;
       const used = await usedPorts(node.id, i.id);
-      // Keep the current port for every template port the caller did not choose.
+      // Keep the current port for every template port the caller did not choose; ports that
+      // follow another move with it.
       const choices = { ...input.ports };
       for (const p of i.ports ?? []) {
-        if (!(p.name in choices) && def.ports.some((tp) => tp.name === p.name)) {
-          choices[p.name] = p.port;
-        }
+        const tp = def.ports.find((x) => x.name === p.name);
+        if (!(p.name in choices) && tp && !tp.follows) choices[p.name] = p.port;
       }
       const allocation = allocatePorts(def.ports, choices, used, {
         start: node.portRangeStart,

@@ -16,6 +16,7 @@ const FORGE_PROMOTIONS =
   "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
 const FORGE_MAVEN = "https://maven.minecraftforge.net/net/minecraftforge/forge";
 const NEOFORGE_MAVEN = "https://maven.neoforged.net/releases/net/neoforged/neoforge";
+const STEAMCMD_API = "https://api.steamcmd.net/v1/info";
 
 const upstream = (what: string, err: unknown) =>
   new HttpError(
@@ -192,6 +193,73 @@ function resolveNeoforge(vars: Record<string, string>): Record<string, string> {
   return { INSTALLER_URL: `${NEOFORGE_MAVEN}/${v}/neoforge-${v}-installer.jar` };
 }
 
+// ---- Steam ---------------------------------------------------------------------
+
+export interface SteamBranch {
+  buildid?: string;
+  description?: string;
+  pwdrequired?: string | number | boolean;
+  timebuildupdated?: string;
+  timeupdated?: string;
+}
+
+/** Offered when api.steamcmd.net cannot be reached: Steam's two standing branches. */
+export const STEAM_FALLBACK_BRANCHES: VersionOption[] = [
+  { id: "public", label: "public (stable)", kind: "release", releasedAt: null },
+  {
+    id: "latest_experimental",
+    label: "latest_experimental (unstable)",
+    kind: "experimental",
+    releasedAt: null,
+  },
+];
+
+/**
+ * An app's branches as versions: `public` first (labelled with the named branch of the same
+ * build), then `latest_experimental`, then the rest newest first. Password branches are left out.
+ */
+export function steamBranchOptions(branches: Record<string, SteamBranch>): VersionOption[] {
+  const open = Object.entries(branches).filter(([, b]) =>
+    !b.pwdrequired || b.pwdrequired === "0" || b.pwdrequired === 0
+  );
+  const time = (b: SteamBranch) => Number(b.timebuildupdated ?? b.timeupdated ?? 0);
+  const pub = branches.public;
+  const twin = pub?.buildid
+    ? open.find(([id, b]) => id !== "public" && b.buildid === pub.buildid && b.description)
+    : undefined;
+  const rank = (id: string) => id === "public" ? 0 : id === "latest_experimental" ? 1 : 2;
+  return open
+    .sort(([a, x], [b, y]) => rank(a) - rank(b) || time(y) - time(x))
+    .map(([id, b]) => ({
+      id,
+      label: id === "public"
+        ? `public (${twin?.[1].description ?? "stable"})`
+        : b.description
+        ? `${id} (${b.description})`
+        : id,
+      kind: id === "public" ? "release" : id === "latest_experimental" ? "experimental" : "old",
+      releasedAt: time(b) ? new Date(time(b) * 1000).toISOString() : null,
+    }));
+}
+
+async function steamVersions(appId: string): Promise<VersionOption[]> {
+  try {
+    return await cached(`steam:${appId}`, async () => {
+      const info = await fetchJson<
+        { data?: Record<string, { depots?: { branches?: Record<string, SteamBranch> } }> }
+      >(`${STEAMCMD_API}/${appId}`, "api.steamcmd.net");
+      const branches = info.data?.[appId]?.depots?.branches;
+      if (!branches || typeof branches !== "object") {
+        throw upstream("api.steamcmd.net", new Error("no branches in the answer"));
+      }
+      return steamBranchOptions(branches);
+    });
+  } catch {
+    // Installs take the branch name as it is; the two standing branches always exist.
+    return STEAM_FALLBACK_BRANCHES;
+  }
+}
+
 // ---- public API ------------------------------------------------------------
 
 export async function listVersions(
@@ -205,6 +273,8 @@ export async function listVersions(
       return await forgeVersions(parent);
     case "minecraft:neoforge":
       return await neoforgeVersions(parent);
+    case "steam:294420":
+      return await steamVersions("294420");
   }
 }
 

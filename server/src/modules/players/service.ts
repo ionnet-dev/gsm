@@ -459,9 +459,16 @@ export async function runAction(
   }
   if (!agentGateway.isConnected(i.nodeId)) throw conflict("The node is offline");
   const known = await InstancePlayer.findOne({ where: { instanceId, name: body.player } });
+  // Someone only on a list (added while offline, never seen) still has the id the game keeps.
+  let id = known?.playerId ?? null;
+  if (!id) {
+    const name = body.player.toLowerCase();
+    const entries = (await listsFor(i, config)).flatMap((l) => l.entries);
+    id = entries.find((e) => e.id && e.name.toLowerCase() === name)?.id ?? null;
+  }
   const built = buildActionCommand(
     action,
-    { name: body.player, id: known?.playerId ?? null },
+    { name: body.player, id },
     body.fields,
     nameValidator(config.namePattern),
   );

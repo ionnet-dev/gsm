@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { NodeDto, TemplateDetailDto, TemplateDto } from "@gsm/shared";
-import { validateVariable } from "@gsm/shared";
+import { portRun, validateVariable } from "@gsm/shared";
 import { errorMessage } from "@/api/client";
 import { useInstanceMutations } from "@/api/instances";
 import { managesNodes, useAllNodes, useNode } from "@/api/nodes";
@@ -304,10 +304,21 @@ function ConfigureStep({
     .map((v) => ({ v, p: validateVariable(v, variables[v.name] ?? "") }))
     .filter((x) => x.p);
   const inUse = new Set((detail?.node.portsInUse ?? []).map((p) => p.port));
-  const portProblems = Object.entries(ports).filter(([, v]) => {
+  // A chosen port takes its followers along: every port of the run must be free.
+  const runLength = (head: string) =>
+    1 + Math.max(
+      0,
+      ...def.ports.map((p) => {
+        const run = portRun(def.ports, p.name);
+        return run.head === head ? run.offset : 0;
+      }),
+    );
+  const portProblems = Object.entries(ports).filter(([k, v]) => {
     if (!v) return false;
     const n = Number(v);
-    return !Number.isInteger(n) || n < 1 || n > 65535 || inUse.has(n);
+    const span = runLength(k);
+    return !Number.isInteger(n) || n < 1 || n + span - 1 > 65535 ||
+      Array.from({ length: span }, (_, j) => n + j).some((x) => inUse.has(x));
   });
   const images = [
     { label: "Default", ref: def.image },
@@ -431,6 +442,26 @@ function ConfigureStep({
               <p className="text-xs text-muted-foreground">This template publishes no ports.</p>
             )}
             {def.ports.map((p) => {
+              const run = portRun(def.ports, p.name);
+              if (run.offset > 0) {
+                const head = ports[run.head] ?? "";
+                return (
+                  <Field
+                    key={p.name}
+                    label={`${p.label} (${p.protocol})`}
+                    htmlFor={`port-${p.name}`}
+                    hint={`Always ${run.head} + ${run.offset}`}
+                  >
+                    <Input
+                      id={`port-${p.name}`}
+                      disabled
+                      placeholder="auto"
+                      className="font-mono"
+                      value={head ? String(Number(head) + run.offset) : ""}
+                    />
+                  </Field>
+                );
+              }
               const v = ports[p.name] ?? "";
               const bad = portProblems.some(([k]) => k === p.name);
               return (

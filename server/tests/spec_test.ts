@@ -74,3 +74,46 @@ Deno.test("buildInstall carries the resolved environment", () => {
   assertEquals(inst.env.SERVER_JAR_URL, "https://x/server.jar");
   assertEquals(inst.timeoutSeconds, 1800);
 });
+
+Deno.test("the console password is fixed per instance and reaches the console transport", () => {
+  const sdtd = TemplateDefinition.parse(
+    JSON.parse(
+      Deno.readTextFileSync(new URL("../../templates/7-days-to-die.json", import.meta.url)),
+    ),
+  );
+  const run = [
+    { name: "game", protocol: "both" as const, port: 30010 },
+    { name: "game_2", protocol: "udp" as const, port: 30011 },
+    { name: "game_3", protocol: "udp" as const, port: 30012 },
+    { name: "dashboard", protocol: "tcp" as const, port: 30013 },
+  ];
+  const a = buildSpec(instance, sdtd, { bindAddress: "0.0.0.0" }, run, "");
+  const again = buildSpec(instance, sdtd, { bindAddress: "0.0.0.0" }, run, "");
+  const other = buildSpec(
+    { ...instance, uuid: "0b0f6c51-5a3a-4d5e-9a57-2c8e8f3f0a11" },
+    sdtd,
+    { bindAddress: "0.0.0.0" },
+    run,
+    "",
+  );
+  const password = a.env.GSM_CONSOLE_PASSWORD;
+  assertEquals(password.length, 24);
+  assertEquals(again.env.GSM_CONSOLE_PASSWORD, password);
+  assertEquals(other.env.GSM_CONSOLE_PASSWORD === password, false);
+  assertEquals(a.console.transport?.kind, "telnet");
+  assertEquals(a.console.transport?.port, 8081);
+  assertEquals(a.console.transport?.password, password);
+  const config = a.files.find((f) => f.path === "serverconfig.xml")!;
+  assertEquals(config.format, "xml-properties");
+  assertEquals(config.values.TelnetPassword, password);
+  assertEquals(config.values.ServerPort, "30010");
+  assertEquals(config.values.WebDashboardPort, "30013");
+  // Every consecutive port is published; the first one on both protocols.
+  assertEquals(a.ports.map((p) => `${p.protocol}/${p.host}`), [
+    "tcp/30010",
+    "udp/30010",
+    "udp/30011",
+    "udp/30012",
+    "tcp/30013",
+  ]);
+});

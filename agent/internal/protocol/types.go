@@ -238,7 +238,7 @@ type ResourceLimits struct {
 
 type ConfigFileSpec struct {
 	Path   string            `json:"path"`
-	Format string            `json:"format"` // properties | json | ini | yaml
+	Format string            `json:"format"` // properties | json | ini | yaml | xml-properties
 	Values map[string]string `json:"values"`
 }
 
@@ -249,7 +249,16 @@ type StopSpec struct {
 }
 
 type ConsoleSpec struct {
-	ReadyPattern *string `json:"readyPattern"`
+	ReadyPattern *string           `json:"readyPattern"`
+	Transport    *ConsoleTransport `json:"transport"`
+}
+
+// ConsoleTransport is where console commands go for a game that does not read stdin.
+type ConsoleTransport struct {
+	Kind     string  `json:"kind"` // telnet | rcon
+	Port     int     `json:"port"` // inside the container; dialled on the container's address
+	Password string  `json:"password"`
+	Ignore   *string `json:"ignore"` // answers matching it are not shown (stdout had them)
 }
 
 type UserSpec struct {
