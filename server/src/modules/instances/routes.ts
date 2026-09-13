@@ -17,6 +17,7 @@ import { instanceBackupRoutes } from "../backups/routes.ts";
 import { instanceFileRoutes } from "../files/routes.ts";
 import { instancePlayerRoutes } from "../players/routes.ts";
 import { instanceSftpRoutes } from "../sftp/routes.ts";
+import { instanceReachabilityRoutes } from "../reachability/routes.ts";
 import { assertNodeAccess } from "../nodes/access.ts";
 import { assertInstancePermission, instanceScope, roleIn } from "./access.ts";
 import * as instances from "./service.ts";
@@ -28,6 +29,7 @@ instanceRoutes.route("/:id/files", instanceFileRoutes);
 instanceRoutes.route("/:id/backups", instanceBackupRoutes);
 instanceRoutes.route("/:id/players", instancePlayerRoutes);
 instanceRoutes.route("/:id/sftp", instanceSftpRoutes);
+instanceRoutes.route("/:id/reachability", instanceReachabilityRoutes);
 
 instanceRoutes.get("/", async (c) => {
   const q = parseQuery(c, ListInstancesQuery);

@@ -112,7 +112,12 @@ export function nodeDto(n: Node, counts?: Counts, owners: Owners = []): NodeDto 
     runningCount: counts?.running ?? 0,
     allocatedMemoryMb: counts?.allocatedMemoryMb ?? 0,
     owners,
-    sftp: { port: n.sftpPort, hostKey: n.sftpHostKey, error: n.sftpError },
+    sftp: {
+      port: n.sftpPort,
+      hostKey: n.sftpHostKey,
+      error: n.sftpError,
+      reachable: n.sftpReachability?.port === n.sftpPort ? n.sftpReachability : null,
+    },
   };
 }
 
@@ -303,6 +308,7 @@ export async function configureAgent(nodeId: number): Promise<void> {
       : { sftpError: "The agent on this node is too old for SFTP; update it" },
     { where: { id: nodeId } },
   );
+  events.emit("node.sftp", { nodeId, listening: s?.listening ?? false });
   uiGateway.broadcast("node.updated", { nodeId });
 }
 

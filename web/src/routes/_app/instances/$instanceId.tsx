@@ -8,6 +8,7 @@ import { CopyButton } from "@/components/data/copy-button";
 import { ErrorView, PendingView } from "@/components/data/error-view";
 import { InstanceStatusBadge } from "@/components/data/status-badge";
 import { PowerButtons } from "@/components/instances/power-buttons";
+import { ReachabilityIndicator } from "@/components/instances/reachability";
 import { StatsStrip } from "@/components/instances/stats-strip";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +69,7 @@ function InstanceLayout() {
               {i.address && (
                 <span className="inline-flex items-center gap-1 font-mono">
                   {i.address} <CopyButton value={i.address} label="Copy address" />
+                  <ReachabilityIndicator instance={i} />
                 </span>
               )}
             </div>

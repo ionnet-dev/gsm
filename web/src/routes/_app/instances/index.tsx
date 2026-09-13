@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Boxes, Plus, Search } from "lucide-react";
+import { AlertTriangle, Boxes, Plus, Search } from "lucide-react";
 import { z } from "zod";
 import { INSTANCE_STATUSES, type InstanceStatus } from "@gsm/shared";
 import { useInstances } from "@/api/instances";
@@ -12,6 +12,7 @@ import { Pagination } from "@/components/data/pagination";
 import { InstanceStatusBadge } from "@/components/data/status-badge";
 import { InstanceDot } from "@/components/data/status-dot";
 import { PowerButtons } from "@/components/instances/power-buttons";
+import { hasReachabilityProblem } from "@/components/instances/reachability";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -208,6 +209,11 @@ function InstancesPage() {
                         ? (
                           <span className="inline-flex items-center gap-1">
                             {i.address} <CopyButton value={i.address} label="Copy address" />
+                            {hasReachabilityProblem(i) && (
+                              <span title="Not reachable from outside; see the instance">
+                                <AlertTriangle className="size-3.5 text-status-degraded" />
+                              </span>
+                            )}
                           </span>
                         )
                         : <span className="text-muted-foreground">—</span>}

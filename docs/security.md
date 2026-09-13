@@ -88,6 +88,11 @@ they close (with how many files were uploaded, downloaded, removed and renamed);
 operations are not audited one by one, unlike the web file manager. SFTP needs the node connected to
 the server, since the agent asks the server about every sign-in.
 
+Reachability checks make the panel server open outgoing connections to the node's public address on
+the instance's ports and the SFTP port. For a stopped instance the agent listens on those ports for
+at most 15 seconds, only when the server asks (`net.probe`), and reacts to nothing but the one-time
+token. Only owners and operators (and node owners, admins) can start a check.
+
 ## Agents and nodes
 
 Agents authenticate with `<nodeId>.<secret>`; only a SHA-256 of the secret is stored and compared in

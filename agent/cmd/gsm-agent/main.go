@@ -22,6 +22,7 @@ import (
 	"github.com/ionnet/gsm/agent/internal/inventory"
 	"github.com/ionnet/gsm/agent/internal/logging"
 	"github.com/ionnet/gsm/agent/internal/metrics"
+	"github.com/ionnet/gsm/agent/internal/netprobe"
 	"github.com/ionnet/gsm/agent/internal/protocol"
 	"github.com/ionnet/gsm/agent/internal/sftpd"
 	"github.com/ionnet/gsm/agent/internal/transfer"
@@ -194,6 +195,7 @@ func run(args []string) int {
 	registerFiles(client, manager, xfer, log)
 	registerBackups(client, manager, xfer, log)
 	registerImages(client, dk, log)
+	registerNet(client, log)
 	registerSFTP(client, sftpSrv)
 
 	log.Info("gsm-agent starting", "version", version, "server", cfg.ServerURL, "os", runtime.GOOS, "data_dir", cfg.DataDir)
@@ -426,5 +428,27 @@ func registerImages(client *transport.Client, dk *docker.Client, log *slog.Logge
 			return nil, err
 		}
 		return map[string]any{}, nil
+	})
+}
+
+// registerNet wires net.probe, the agent's half of a reachability check.
+func registerNet(client *transport.Client, log *slog.Logger) {
+	client.Handle("net.probe", func(ctx context.Context, raw json.RawMessage, stream transport.StreamWriter) (any, error) {
+		var p protocol.ProbeParams
+		if err := decode(raw, &p, func() bool {
+			if len(p.Token) < 16 || len(p.Listeners) == 0 || len(p.Listeners) > 32 {
+				return false
+			}
+			for _, l := range p.Listeners {
+				if l.Port < 1 || l.Port > 65535 {
+					return false
+				}
+			}
+			return true
+		}); err != nil {
+			return nil, err
+		}
+		log.Info("net.probe", "listeners", len(p.Listeners))
+		return netprobe.Run(ctx, p, func(s protocol.ProbeState) { _ = stream.Send(s) }), nil
 	})
 }

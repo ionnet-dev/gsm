@@ -11,6 +11,12 @@ export interface GsmEvents {
   /** The agent reported a state for one of its instances (from inst.status or inst.list). */
   "instance.state": { nodeId: number; state: InstanceState };
   "instance.deleted": { instanceId: number; nodeId: number };
+  /** An instance reached `running`; its ports answer now. */
+  "instance.running": { instanceId: number };
+  /** An install finished or an instance's ports changed, while it is stopped. */
+  "instance.ports_changed": { instanceId: number };
+  /** A node answered agent.configure; `listening` is its SFTP state. */
+  "node.sftp": { nodeId: number; listening: boolean };
   /** A user's instance or node access changed (grant, revoke, role, instance created/deleted). */
   "access.changed": { userIds: number[] };
 }

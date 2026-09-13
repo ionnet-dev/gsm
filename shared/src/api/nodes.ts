@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { NodeStatus } from "../enums.ts";
 import type { DockerInfo, Inventory, Metrics } from "../protocol/agent.ts";
 import { Pagination } from "./common.ts";
+import type { SftpReachability } from "./reachability.ts";
 
 /** The default port pool for a new node. */
 export const DEFAULT_PORT_RANGE = { start: 30000, end: 30999 } as const;
@@ -36,8 +37,16 @@ export interface NodeDto {
   allocatedMemoryMb: number;
   /** Users who own the node (see NodeAccessDto). */
   owners: { id: number; name: string }[];
-  /** SFTP: `port` null = off; `hostKey` and `error` as the agent last reported them. */
-  sftp: { port: number | null; hostKey: string | null; error: string | null };
+  /**
+   * SFTP: `port` null = off; `hostKey` and `error` as the agent last reported them; `reachable`
+   * from the last check of the current port.
+   */
+  sftp: {
+    port: number | null;
+    hostKey: string | null;
+    error: string | null;
+    reachable: SftpReachability | null;
+  };
 }
 
 export interface NodeDetailDto extends NodeDto {

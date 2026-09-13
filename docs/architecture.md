@@ -129,6 +129,11 @@ id>`;
 a user signs in with their SFTP password for that instance or one of their SSH keys. See
 `docs/protocol.md` → SFTP and `docs/security.md` → SFTP.
 
+Reachability (`modules/reachability/`) checks from the panel server that an instance's ports and its
+node's SFTP port answer at the node's public address: TCP connects for a running server, the agent's
+`net.probe` listener for a stopped one (the only way to test UDP), and the SSH greeting for SFTP.
+Results are stored on the instance and the node and shown next to the address.
+
 Backups are `.tar.gz` archives under `<dataDir>/backups/<uuid>/` made by the agent (`backup.create`,
 progress streamed), recorded in `backups` with size and SHA-256. Restoring requires a stopped
 instance. Downloads go through the same transfer relay.

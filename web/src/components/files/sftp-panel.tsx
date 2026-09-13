@@ -17,6 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { formatRelative } from "@/lib/format";
+import { REACHABILITY_LABEL } from "@/components/instances/reachability";
 
 /** A line above the file manager with the SFTP address; the dialog has the rest. */
 export function SftpBar({ instanceId }: { instanceId: number }) {
@@ -33,6 +34,13 @@ export function SftpBar({ instanceId }: { instanceId: number }) {
           </span>
         )
         : <span className="text-muted-foreground">{s.problem}</span>}
+      {s.available && s.reachable && s.reachable.status !== "open" && (
+        <span className="text-status-degraded" title={s.reachable.detail ?? undefined}>
+          {s.reachable.status === "untested"
+            ? "Not checked from outside"
+            : "Not reachable from outside"}
+        </span>
+      )}
       <span className="flex-1" />
       <SftpDialog instanceId={instanceId} sftp={s} />
     </div>
@@ -82,6 +90,20 @@ function SftpDialog({ instanceId, sftp: s }: { instanceId: number; sftp: Instanc
           <Row k="Username" v={s.username} />
           {s.hostKey && <Row k="Host key" v={s.hostKey} />}
         </div>
+        {s.reachable && (
+          <p className="text-xs text-muted-foreground">
+            From outside:{" "}
+            <span
+              className={s.reachable.status === "open"
+                ? "text-status-online"
+                : "text-status-degraded"}
+            >
+              {REACHABILITY_LABEL[s.reachable.status].toLowerCase()}
+            </span>
+            {s.reachable.detail ? ` (${s.reachable.detail})` : ""}, checked{" "}
+            {formatRelative(s.reachable.checkedAt)}.
+          </p>
+        )}
         {s.port !== null && (
           <div className="rounded bg-muted p-2 font-mono text-[11px] text-muted-foreground">
             sftp -P {s.port} {s.username}@{s.host}

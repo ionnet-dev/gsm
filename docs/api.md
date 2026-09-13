@@ -58,6 +58,7 @@ turns SFTP off; it must lie outside the port pool and not be an instance's port)
 | GET      | `/nodes/:id/access`                 | `{ items: NodeAccessDto[] }`, the node's owners                                                        |
 | PUT      | `/nodes/:id/access`                 | admin; `GrantNodeAccessBody` → `{ items }`; owner of the node and every instance on it                 |
 | DELETE   | `/nodes/:id/access/:userId`         | admin → `{ items }`                                                                                    |
+| POST     | `/nodes/:id/sftp/check`             | checks the SFTP port from outside → `{ sftp: SftpReachability \| null }`                               |
 | GET/POST | `/enrollment-tokens`                | `{ items: EnrollmentTokenDto[] }`; POST `CreateEnrollmentTokenBody` → `{ token, plaintext }`           |
 | POST     | `/enrollment-tokens/:id/revoke`     |                                                                                                        |
 | POST     | `/agents/enroll`                    | agent-facing, no session: `{ token, name?, agentVersion, inventory }` → `{ agentToken, nodeId, name }` |
@@ -98,6 +99,7 @@ turns SFTP off; it must lie outside the port pool and not be an instance's port)
 | PUT    | `/instances/:id/access`                                        | access             | `GrantAccessBody` (grant or change role) → `{ items }`                                                                                       |
 | DELETE | `/instances/:id/access/:userId`                                | access             |                                                                                                                                              |
 | GET    | `/instances/:id/activity?page`                                 | view               | audit entries about the instance                                                                                                             |
+| POST   | `/instances/:id/reachability`                                  | settings           | checks the ports and the node's SFTP now → `{ reachability, sftp }` (see Reachability); 429 when checked a moment ago                        |
 
 ### Files (`files` permission), all under `/instances/:id/files`
 
@@ -139,6 +141,18 @@ Only for templates with a `players` section (`InstanceDto.players` is null other
 | GET    | `/`         | `{ sftp: InstanceSftpDto }`: host, port, the requester's username, host key, password state                |
 | POST   | `/password` | makes or replaces the requester's SFTP password → `{ password, sftp }` (shown once); not with an API token |
 | DELETE | `/password` | → `{ sftp }`                                                                                               |
+
+### Reachability
+
+`InstanceDto.reachability`, `NodeDto.sftp.reachable` and `InstanceSftpDto.reachable` hold the last
+check (`shared/src/api/reachability.ts`). The panel server connects to the node's public address
+like a player: a running server's TCP ports are connected to; a stopped server's ports (TCP and UDP)
+are tested with the agent's `net.probe`; UDP ports of a running server keep their last result. SFTP
+must answer with the agent's SSH greeting. Statuses: `open`, `closed` (refused), `timeout` (no
+answer), `error` (does not resolve, port taken by another program, another service answers) and
+`untested`. Checks also run by themselves when an instance starts, finishes installing or changes
+ports, and when a node's SFTP starts listening. Manual checks are limited to six a minute per
+instance or node.
 
 ## SSH keys (the requester's own)
 

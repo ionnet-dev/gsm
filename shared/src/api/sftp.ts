@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SftpReachability } from "./reachability.ts";
 
 /** How the requester reaches one instance over SFTP. */
 export interface InstanceSftpDto {
@@ -15,6 +16,8 @@ export interface InstanceSftpDto {
   password: { createdAt: string; lastUsedAt: string | null } | null;
   /** How many SSH keys the requester has; every key works on every instance they manage files on. */
   sshKeys: number;
+  /** The last check of the node's SFTP port from outside; null before the first. */
+  reachable: SftpReachability | null;
 }
 
 export interface SshKeyDto {

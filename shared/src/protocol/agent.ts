@@ -9,6 +9,7 @@ import { fileMethods } from "./files.ts";
 import { backupMethods } from "./backups.ts";
 import { imageMethods } from "./images.ts";
 import { SftpConfig, sftpEvents, sftpMethods, SftpStatus } from "./sftp.ts";
+import { probeMethods } from "./probe.ts";
 
 // ---- inventory & presence -------------------------------------------------
 
@@ -126,6 +127,7 @@ export const agentMethods = {
   ...backupMethods,
   ...imageMethods,
   ...sftpMethods,
+  ...probeMethods,
 } as const;
 export type AgentMethod = keyof typeof agentMethods;
 export type AgentParams<M extends AgentMethod> = z.input<(typeof agentMethods)[M]["params"]>;

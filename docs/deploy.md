@@ -46,6 +46,12 @@ in its firewall. Instances are published on the node's bind address (default eve
 players connect to the node's public address, which defaults to the address the agent connects from
 and can be set per node.
 
+The panel checks from its own server whether those ports and the SFTP port answer at the public
+address (the mark next to an instance's address). Two things to know: when the panel runs on the
+node itself or in its network, the check cannot see an outside firewall; and Docker publishes
+container ports around some host firewalls (ufw), so a stopped server's test, which the host
+firewall sees, can report a port blocked that the running server still serves.
+
 The instance images come from `ghcr.io/ionnet-dev` (Settings → General → Image registry). Nodes pull
 them on first use; for a private registry, enter credentials under Settings → General → Registry,
 which every agent receives.

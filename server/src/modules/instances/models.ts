@@ -9,6 +9,7 @@ import {
 } from "sequelize";
 import type {
   BackupStatus,
+  InstanceReachability,
   InstanceRole,
   InstanceStats,
   InstanceStatus,
@@ -42,6 +43,8 @@ export class Instance extends Model<InferAttributes<Instance>, InferCreationAttr
   declare lastStartedAt: CreationOptional<Date | null>;
   declare lastStats: CreationOptional<InstanceStats | null>;
   declare containerId: CreationOptional<string | null>;
+  /** The last reachability check (modules/reachability). */
+  declare reachability: CreationOptional<InstanceReachability | null>;
   declare createdBy: ForeignKey<number | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -75,6 +78,7 @@ Instance.init(
     lastStartedAt: { type: DataTypes.DATE(3), allowNull: true },
     lastStats: { type: DataTypes.JSON, allowNull: true },
     containerId: { type: DataTypes.STRING(80), allowNull: true },
+    reachability: { type: DataTypes.JSON, allowNull: true },
     createdBy: { type: DataTypes.BIGINT, allowNull: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),

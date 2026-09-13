@@ -1,5 +1,5 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
-import { Download, Loader2, Plus, Radio, RefreshCw, Trash2, Users } from "lucide-react";
+import { Download, Globe, Loader2, Plus, Radio, RefreshCw, Trash2, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NodeDetailDto, PullProgress } from "@gsm/shared";
@@ -8,6 +8,8 @@ import { errorMessage } from "@/api/client";
 import { useInstances } from "@/api/instances";
 import { managesNodes, useNode, useNodeAccess, useNodeImages, useNodeMutations } from "@/api/nodes";
 import { useUserDirectory } from "@/api/users";
+import { useNodeSftpCheck } from "@/api/reachability";
+import { REACHABILITY_LABEL } from "@/components/instances/reachability";
 import { ConfirmDialog } from "@/components/data/confirm-dialog";
 import { CopyButton } from "@/components/data/copy-button";
 import { EmptyState } from "@/components/data/empty-state";
@@ -63,6 +65,7 @@ function NodePage() {
   const nodeId = Number(Route.useParams().nodeId);
   const q = useNode(nodeId);
   const nm = useNodeMutations();
+  const sftpCheck = useNodeSftpCheck(nodeId);
   if (q.isLoading) return <PendingView />;
   if (q.error) return <ErrorView error={q.error} reset={() => q.refetch()} />;
   const n = q.data!.node;
@@ -105,6 +108,21 @@ function NodePage() {
               onClick={() => nm.refresh.mutate(n.id, { onError: err })}
             >
               <RefreshCw /> Refresh inventory
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={n.status !== "online" || n.sftp.port === null || sftpCheck.isPending}
+              onClick={() =>
+                sftpCheck.mutate(undefined, {
+                  onSuccess: (r) =>
+                    r.sftp?.status === "open"
+                      ? toast.success("SFTP is reachable from outside")
+                      : toast.warning(r.sftp?.detail ?? "SFTP is not reachable from outside"),
+                  onError: err,
+                })}
+            >
+              <Globe /> Check SFTP
             </Button>
           </div>
         </div>
@@ -207,6 +225,10 @@ function Overview({ node: n }: { node: NodeDetailDto }) {
                 ? "off"
                 : n.sftp.error
                 ? `port ${n.sftp.port}: ${n.sftp.error}`
+                : n.sftp.reachable
+                ? `port ${n.sftp.port} · ${
+                  REACHABILITY_LABEL[n.sftp.reachable.status].toLowerCase()
+                } from outside${n.sftp.reachable.detail ? ` (${n.sftp.reachable.detail})` : ""}`
                 : `port ${n.sftp.port}`}
             />
             {n.sftp.hostKey && <Fact k="SFTP host key" v={n.sftp.hostKey} copy />}

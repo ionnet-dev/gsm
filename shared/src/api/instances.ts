@@ -7,6 +7,7 @@ import {
 } from "../enums.ts";
 import type { InstanceStats, ResourceLimits } from "../protocol/instances.ts";
 import { Pagination } from "./common.ts";
+import type { InstanceReachability } from "./reachability.ts";
 import { VARIABLE_NAME_RE } from "./templates.ts";
 
 export const VariableValues = z.record(z.string().regex(VARIABLE_NAME_RE), z.string().max(4000));
@@ -46,6 +47,8 @@ export interface InstanceDto {
   address: string | null;
   /** Players online now; null when the template does not track players. */
   players: { online: number } | null;
+  /** The last reachability check of its ports (current ports only); null before the first. */
+  reachability: InstanceReachability | null;
 }
 
 export interface InstanceDetailDto extends InstanceDto {

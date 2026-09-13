@@ -10,6 +10,7 @@ import { log } from "../../lib/logger.ts";
 import { auditFrom } from "../audit/service.ts";
 import { currentUser, requireAuth, requireRole } from "../auth/middleware.ts";
 import { assertNodeAccess, nodeScope } from "./access.ts";
+import * as reachability from "../reachability/service.ts";
 import {
   CreateEnrollmentTokenBody,
   EnrollBody,
@@ -135,6 +136,14 @@ nodeRoutes.delete("/:id/images", async (c) => {
   await agentGateway.request(id, "image.remove", { ref }, { timeoutMs: 120_000 });
   await auditFrom(c, "node.image_remove", { type: "node", id }, { ref });
   return c.json({ ok: true });
+});
+
+/** Check from the panel server that the node's SFTP port answers from outside. */
+nodeRoutes.post("/:id/sftp/check", async (c) => {
+  const id = idParam(c);
+  await assertNodeAccess(c, id);
+  reachability.assertManualAllowed(`node:${id}`);
+  return c.json({ sftp: await reachability.checkNodeSftp(id) });
 });
 
 // ---- owners: anyone who manages the node sees them, only admins change them ----

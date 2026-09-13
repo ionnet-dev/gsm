@@ -9,6 +9,7 @@ import type {
   InstanceAccessDto,
   InstanceDetailDto,
   InstanceDto,
+  InstanceReachability,
   InstanceRole,
   InstanceStatus,
   InstanceSummary,
@@ -75,6 +76,21 @@ function portsDto(i: Instance) {
     }));
 }
 
+/** The stored reachability check, limited to the ports the instance has now. */
+function reachabilityDto(i: Instance): InstanceReachability | null {
+  const r = i.reachability;
+  if (!r) return null;
+  const current = new Set(
+    (i.ports ?? []).flatMap((p) =>
+      (p.protocol === "both" ? ["tcp", "udp"] : [p.protocol]).map((proto) =>
+        `${p.name}/${p.port}/${proto}`
+      )
+    ),
+  );
+  const ports = r.ports.filter((p) => current.has(`${p.name}/${p.port}/${p.protocol}`));
+  return ports.length ? { ...r, ports } : null;
+}
+
 export function instanceDto(i: Instance, myRole: InstanceRole): InstanceDto {
   const node = i.node!;
   const t = i.template!;
@@ -102,6 +118,7 @@ export function instanceDto(i: Instance, myRole: InstanceRole): InstanceDto {
     myRole,
     address: primary ? `${address}:${primary.port}` : null,
     players: players.playersOf(t.definition) ? { online: players.onlineCount(i.id) } : null,
+    reachability: reachabilityDto(i),
   };
 }
 
@@ -367,6 +384,7 @@ export async function update(
     }
   });
   uiGateway.broadcast("instance.updated", { instanceId: id });
+  if (input.ports !== undefined) events.emit("instance.ports_changed", { instanceId: id });
   return await get(id);
 }
 
@@ -463,6 +481,7 @@ export async function install(id: number, actorId: number | null): Promise<void>
     if (res.exitCode === 0) {
       fresh.installedAt = new Date();
       await setStatus(fresh, "stopped");
+      events.emit("instance.ports_changed", { instanceId: id });
       ilog.info("install finished", { id, durationMs: res.durationMs });
     } else {
       await setStatus(

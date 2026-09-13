@@ -95,6 +95,7 @@ export async function instanceSftp(instanceId: number, user: User): Promise<Inst
       }
       : null,
     sshKeys,
+    reachable: node.sftpReachability?.port === node.sftpPort ? node.sftpReachability : null,
   };
 }
 

@@ -53,6 +53,7 @@ named there; this table is the overview.
 | `image.remove`            | `{ ref }`                         | `{}`                                                                        |
 | `sftp.sessions`           | `{ userIds? }`                    | `{ sessions: SftpSession[] }` — open SFTP connections                       |
 | `sftp.disconnect`         | `{ ids }`                         | `{ closed }`                                                                |
+| `net.probe`               | `ProbeParams`                     | stream `ProbeState` once listening; result `ProbeState` (see below)         |
 
 ### The instance spec
 
@@ -113,6 +114,16 @@ confined to `<data_dir>/instances/<uuid>` with `os.Root`, and what it creates is
 instance's container user. `credential` is opaque to the agent and comes back in `sftp.sessions`:
 when someone's access changes, the server re-checks each listed session and closes the ones no
 longer allowed with `sftp.disconnect`. `inst.remove` closes the instance's sessions itself.
+
+### Reachability probes
+
+`net.probe` tests ports of a stopped instance from outside. The agent listens on each requested port
+and protocol on the node's bind address, streams one `ProbeState` once they are open (a port it
+cannot open, because something else has it, comes back `bound: false` with the error), and returns
+as soon as every open listener got the token, or after `timeoutMs` (1–15 s). The server sends
+`GSM-PROBE <token>` to the node's public address, as a line over TCP and as datagrams over UDP; the
+agent answers `GSM-PROBE-OK` and ignores anything else. Running servers are not probed: their TCP
+ports are simply connected to.
 
 ## Transfers
 

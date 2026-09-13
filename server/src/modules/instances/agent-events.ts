@@ -46,6 +46,9 @@ export async function applyState(instance: Instance, state: InstanceState): Prom
   if (state.installed && !instance.installedAt) instance.installedAt = new Date();
   if (instance.changed()) await instance.save();
   if (before !== instance.status) players.onStatus(instance.id, instance.status);
+  if (before !== "running" && instance.status === "running") {
+    events.emit("instance.running", { instanceId: instance.id });
+  }
   if (before !== instance.status || state.error) {
     uiGateway.broadcast("instance.status", {
       instanceId: instance.id,

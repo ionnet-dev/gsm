@@ -603,3 +603,37 @@ type ImagePullResult struct {
 	Ref string `json:"ref"`
 	ID  string `json:"id"`
 }
+
+// ---- reachability probes ----
+
+// ProbePrefix starts what the server sends to a probed port: "GSM-PROBE <token>", a line over
+// TCP and one datagram over UDP.
+const ProbePrefix = "GSM-PROBE "
+
+// ProbeListener is a port net.probe listens on.
+type ProbeListener struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"` // "tcp" | "udp"
+}
+
+// ProbeParams asks the agent to listen on some ports until the token arrives on each.
+type ProbeParams struct {
+	BindAddress string          `json:"bindAddress"`
+	Token       string          `json:"token"`
+	TimeoutMs   int             `json:"timeoutMs"`
+	Listeners   []ProbeListener `json:"listeners"`
+}
+
+// ProbeListenerState reports one listener: whether it could be opened and whether the token came.
+type ProbeListenerState struct {
+	Port     int     `json:"port"`
+	Protocol string  `json:"protocol"`
+	Bound    bool    `json:"bound"`
+	Error    *string `json:"error"`
+	Received bool    `json:"received"`
+}
+
+// ProbeState is both the ready chunk and the result of net.probe.
+type ProbeState struct {
+	Listeners []ProbeListenerState `json:"listeners"`
+}
