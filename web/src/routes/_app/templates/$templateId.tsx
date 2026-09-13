@@ -166,19 +166,19 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
             {issues.slice(0, 5).map((i) => <div key={i}>{i}</div>)}
           </div>
         )}
-        <fieldset disabled={readOnly} className="contents">
-          <Tabs value={tab} onValueChange={onTab}>
-            <TabsList className="mb-4 flex-wrap">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="runtime">Runtime</TabsTrigger>
-              <TabsTrigger value="install">Install</TabsTrigger>
-              <TabsTrigger value="variables">Variables ({def.variables.length})</TabsTrigger>
-              <TabsTrigger value="ports">Ports ({def.ports.length})</TabsTrigger>
-              <TabsTrigger value="files">Files ({def.files.length})</TabsTrigger>
-              <TabsTrigger value="players">Players</TabsTrigger>
-              <TabsTrigger value="raw">Raw JSON</TabsTrigger>
-            </TabsList>
-
+        <Tabs value={tab} onValueChange={onTab}>
+          <TabsList className="mb-4 flex-wrap">
+            <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="runtime">Runtime</TabsTrigger>
+            <TabsTrigger value="install">Install</TabsTrigger>
+            <TabsTrigger value="variables">Variables ({def.variables.length})</TabsTrigger>
+            <TabsTrigger value="ports">Ports ({def.ports.length})</TabsTrigger>
+            <TabsTrigger value="files">Files ({def.files.length})</TabsTrigger>
+            <TabsTrigger value="players">Players</TabsTrigger>
+            <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+          </TabsList>
+          {/* Only the panels are locked for built-ins; the tabs stay usable to read them. */}
+          <fieldset disabled={readOnly} className="contents">
             <TabsContent value="general">
               <Card>
                 <CardContent className="grid gap-3 pt-4 sm:grid-cols-2">
@@ -536,8 +536,8 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
                 </div>
               </div>
             </TabsContent>
-          </Tabs>
-        </fieldset>
+          </fieldset>
+        </Tabs>
       </div>
     </>
   );
