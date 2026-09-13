@@ -14,14 +14,8 @@ import { VariableFields } from "@/components/instances/variable-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -156,19 +150,18 @@ function SettingsForm(
                 </p>
               )}
               <Field label="Image">
-                <Select value={image} onValueChange={setImage} disabled={running}>
-                  <SelectTrigger className="font-mono">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {images.map((x) => (
-                      <SelectItem key={x.ref} value={x.ref} className="font-mono">
-                        {x.label !== "Default" ? `${x.label} · ` : ""}
-                        {x.ref}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Combobox
+                  value={image}
+                  onValueChange={setImage}
+                  disabled={running}
+                  className="font-mono"
+                  itemClassName="font-mono"
+                  searchPlaceholder="Search images…"
+                  options={images.map((x) => ({
+                    value: x.ref,
+                    label: x.label !== "Default" ? `${x.label} · ${x.ref}` : x.ref,
+                  }))}
+                />
               </Field>
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Memory (MB)" htmlFor="smem" hint="0 = unlimited">

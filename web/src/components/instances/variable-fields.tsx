@@ -3,14 +3,8 @@ import type { TemplateVariable } from "@gsm/shared";
 import { validateVariable } from "@gsm/shared";
 import { useVersions } from "@/api/templates";
 import { Field } from "@/components/data/field";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 /**
@@ -97,16 +91,13 @@ function VariableField({
       );
     case "select":
       return field(
-        <Select value={value} onValueChange={onChange} disabled={readOnly}>
-          <SelectTrigger id={id}>
-            <SelectValue placeholder="Choose…" />
-          </SelectTrigger>
-          <SelectContent>
-            {v.options.map((o) => (
-              <SelectItem key={o.value} value={o.value}>{o.label || o.value}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>,
+        <Combobox
+          id={id}
+          value={value}
+          onValueChange={onChange}
+          disabled={readOnly}
+          options={v.options}
+        />,
       );
     case "version":
       return field(
@@ -174,29 +165,30 @@ function VersionSelect({
   if (readOnly) return <Input id={id} value={value} readOnly className="font-mono" />;
   const known = versions.some((o) => o.id === value);
   return (
-    <Select value={value} onValueChange={onChange} disabled={needsParent && !parent}>
-      <SelectTrigger id={id} className="font-mono">
-        <SelectValue
-          placeholder={q.isLoading
-            ? "Loading versions…"
-            : q.error
-            ? "Couldn't load versions"
-            : needsParent && !parent
-            ? "Pick the parent version first"
-            : "Choose a version"}
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {!known && value && <SelectItem value={value}>{value}</SelectItem>}
-        {versions.map((o) => (
-          <SelectItem key={o.id} value={o.id} className="font-mono">
-            {o.label}
-            {o.kind && o.kind !== "release" && (
-              <span className="ml-2 text-[10px] uppercase text-muted-foreground">{o.kind}</span>
-            )}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Combobox
+      id={id}
+      value={value}
+      onValueChange={onChange}
+      disabled={needsParent && !parent}
+      className="font-mono"
+      itemClassName="font-mono"
+      searchPlaceholder="Search versions…"
+      emptyText="No version matches."
+      placeholder={q.isLoading
+        ? "Loading versions…"
+        : q.error
+        ? "Couldn't load versions"
+        : needsParent && !parent
+        ? "Pick the parent version first"
+        : "Choose a version"}
+      options={[
+        ...(!known && value ? [{ value }] : []),
+        ...versions.map((o) => ({
+          value: o.id,
+          label: o.label,
+          hint: o.kind && o.kind !== "release" ? o.kind : undefined,
+        })),
+      ]}
+    />
   );
 }

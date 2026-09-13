@@ -17,14 +17,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { formatBytes } from "@/lib/format";
@@ -368,19 +362,17 @@ function ConfigureStep({
           </CardHeader>
           <CardContent className="grid gap-3">
             <Field label="Image" hint="Pulled on the node at first start.">
-              <Select value={image} onValueChange={setImage}>
-                <SelectTrigger className="font-mono">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {images.map((i) => (
-                    <SelectItem key={i.ref} value={i.ref} className="font-mono">
-                      {i.label !== "Default" ? `${i.label} · ` : ""}
-                      {i.ref}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Combobox
+                value={image}
+                onValueChange={setImage}
+                className="font-mono"
+                itemClassName="font-mono"
+                searchPlaceholder="Search images…"
+                options={images.map((i) => ({
+                  value: i.ref,
+                  label: i.label !== "Default" ? `${i.label} · ${i.ref}` : i.ref,
+                }))}
+              />
             </Field>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Memory (MB)" htmlFor="mem" hint="0 = unlimited">
