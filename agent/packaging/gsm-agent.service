@@ -1,0 +1,19 @@
+[Unit]
+Description=Ionnet GSM agent
+Documentation=https://github.com/ionnet-dev/gsm
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gsm-agent run
+Restart=always
+RestartSec=3
+# The agent runs as root: it drives Docker and owns the instance data directory.
+User=root
+Environment=GSM_LOG_LEVEL=info
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

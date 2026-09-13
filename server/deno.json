@@ -1,0 +1,32 @@
+{
+  "name": "@gsm/server",
+  "version": "0.1.0",
+  "exports": "./src/main.ts",
+  "tasks": {
+    "dev": "deno run -A --watch --env-file=../.env src/main.ts",
+    "start": "deno run -A src/main.ts",
+    "migrate": "deno run -A --env-file=../.env src/db/migrate.ts",
+    "2fa:reset": "deno run -A --env-file=../.env src/cli/two-factor.ts",
+    "test": "SESSION_SECRET=test-only-secret-test-only-secret-0000 deno test -A"
+  },
+  "imports": {
+    "@gsm/shared": "../shared/src/mod.ts",
+    "hono": "npm:hono@^4.13.7",
+    "sequelize": "npm:sequelize@^6.37.8",
+    "mysql2": "npm:mysql2@^3.24.4",
+    "umzug": "npm:umzug@^3.8.3",
+    "zod": "npm:zod@^4.5.4",
+    "hash-wasm": "npm:hash-wasm@^4.12.0",
+    "@std/encoding": "jsr:@std/encoding@^1",
+    "@std/assert": "jsr:@std/assert@^1",
+    "nodemailer": "npm:nodemailer@^10.0.1",
+    "@types/nodemailer": "npm:@types/nodemailer@^8.0.1",
+    "croner": "npm:croner@^10.0.1"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "deno.window"
+    ]
+  }
+}

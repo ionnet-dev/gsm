@@ -1,0 +1,26 @@
+{
+  "name": "@gsm/web",
+  "version": "0.1.0",
+  "exports": "./src/main.tsx",
+  "tasks": {
+    "dev": "deno run -A npm:vite",
+    "build": "deno run -A npm:vite build",
+    "preview": "deno run -A npm:vite preview",
+    "check": "deno check src/main.tsx"
+  },
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable",
+      "deno.ns"
+    ],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "strict": true
+  },
+  "imports": {
+    "@/": "./src/",
+    "@gsm/shared": "../shared/src/mod.ts"
+  }
+}

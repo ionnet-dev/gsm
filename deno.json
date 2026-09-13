@@ -1,0 +1,42 @@
+{
+  "workspace": [
+    "./shared",
+    "./server",
+    "./web"
+  ],
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "dev:server": "deno task -f @gsm/server dev",
+    "dev:web": "deno task -f @gsm/web dev",
+    "build": "deno task -f @gsm/web build",
+    "agent:build": "cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags \"-X main.version=0.1.0-dev\" -o ../server/data/downloads/gsm-agent/0.1.0-dev/x86_64 ./cmd/gsm-agent && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags \"-X main.version=0.1.0-dev\" -o ../server/data/downloads/gsm-agent/0.1.0-dev/aarch64 ./cmd/gsm-agent",
+    "test": "SESSION_SECRET=test-only-secret-test-only-secret-0000 deno test -A shared/tests server/tests && cd agent && go test ./...",
+    "migrate": "deno task -f @gsm/server migrate",
+    "2fa:reset": "deno task -f @gsm/server 2fa:reset",
+    "db:up": "docker compose -f docker-compose.dev.yml up -d",
+    "db:down": "docker compose -f docker-compose.dev.yml down",
+    "dev": "deno task dev:server & deno task dev:web; wait",
+    "images:build": "docker build -t ghcr.io/ionnet-dev/gsm-base:latest images/base && for v in 8 17 21 25; do docker build --build-arg JAVA_VERSION=$v -t ghcr.io/ionnet-dev/gsm-java:$v images/java; done"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "singleQuote": false,
+    "semiColons": true,
+    "exclude": [
+      "web/src/routeTree.gen.ts",
+      "web/src/components/ui"
+    ]
+  },
+  "lint": {
+    "exclude": [
+      "web/src/routeTree.gen.ts",
+      "web/src/components/ui"
+    ]
+  },
+  "compilerOptions": {
+    "strict": true
+  },
+  "unstable": [
+    "sloppy-imports"
+  ]
+}

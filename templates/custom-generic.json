@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "slug": "custom-generic",
+  "name": "Custom server (generic)",
+  "game": "Custom",
+  "description": "A starting point for any game: copy this template, then set the image, the install script, the startup command, the variables and the ports for your server.",
+  "icon": "🧩",
+  "tags": [
+    "custom",
+    "generic"
+  ],
+  "image": "ghcr.io/ionnet-dev/gsm-base:latest",
+  "images": [],
+  "install": {
+    "image": null,
+    "script": "#!/bin/sh\nset -eu\ncd /data\necho \"Nothing to install. Edit this template's install script to download your server files.\"\n",
+    "resolver": null,
+    "timeoutSeconds": 1800
+  },
+  "startup": "sh -c 'echo \"Replace the startup command in the template\"; sleep 3600'",
+  "stop": {
+    "command": null,
+    "signal": "SIGTERM",
+    "timeoutSeconds": 30
+  },
+  "console": {
+    "readyPattern": null
+  },
+  "variables": [],
+  "ports": [
+    {
+      "name": "game",
+      "label": "Game port",
+      "protocol": "tcp",
+      "default": 27015,
+      "primary": true
+    }
+  ],
+  "files": [],
+  "resources": {
+    "memoryMb": 2048,
+    "cpuCores": 0,
+    "diskMb": 0
+  },
+  "restartOnCrash": false,
+  "backupIgnore": []
+}

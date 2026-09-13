@@ -1,0 +1,64 @@
+# Production-style deployment: MySQL + GSM server. Put a TLS-terminating reverse proxy in front of :3000.
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: gsm
+      MYSQL_USER: gsm
+      MYSQL_PASSWORD: ${DB_PASSWORD:-change-me}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci
+    volumes:
+      - gsm-mysql:/var/lib/mysql
+    healthcheck:
+      test: [
+        "CMD",
+        "mysqladmin",
+        "ping",
+        "-h",
+        "127.0.0.1",
+        "-p${DB_ROOT_PASSWORD:-change-me-root}",
+      ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build: .
+    image: ionnet/gsm-server:latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SITE_URL: ${SITE_URL:-http://localhost:${PORT:-3000}}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      DB_HOST: mysql
+      DB_NAME: gsm
+      DB_USER: gsm
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      AUTO_MIGRATE: "true"
+    # Healthy once it serves requests and reaches MySQL; lets a proxy or `docker compose up --wait`
+    # tell when a redeploy is done.
+    healthcheck:
+      test: [
+        "CMD",
+        "deno",
+        "eval",
+        "--no-config",
+        "const r = await fetch('http://127.0.0.1:3000/api/v1/health').catch(() => null); Deno.exit(r?.ok ? 0 : 1)",
+      ]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${PORT:-3000}:3000"
+    volumes:
+      - gsm-data:/app/data
+
+volumes:
+  gsm-mysql:
+  gsm-data:

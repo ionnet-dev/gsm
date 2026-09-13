@@ -1,0 +1,32 @@
+{
+  "protocolVersion": 1,
+  "agentVersion": "0.1.0",
+  "inventory": {
+    "hostname": "node-1",
+    "machineId": "3f0c1d2e4b5a6978a0b1c2d3e4f50617",
+    "os": {
+      "id": "debian",
+      "name": "Debian GNU/Linux",
+      "version": "12",
+      "prettyName": "Debian GNU/Linux 12 (bookworm)"
+    },
+    "kernel": "6.1.0-18-amd64",
+    "arch": "x86_64",
+    "cpu": { "model": "AMD EPYC 7763", "cores": 4, "threads": 8 },
+    "memoryTotalBytes": 16777216000,
+    "disks": [
+      { "device": "/dev/sda1", "mountpoint": "/", "fstype": "ext4", "totalBytes": 107374182400 }
+    ],
+    "addresses": ["203.0.113.10", "2001:db8::10"],
+    "bootTime": "2026-09-01T10:00:00Z",
+    "docker": {
+      "available": true,
+      "error": "",
+      "version": "29.0.1",
+      "apiVersion": "1.52",
+      "storageDriver": "overlay2",
+      "rootDir": "/var/lib/docker"
+    },
+    "dataDir": "/var/lib/gsm"
+  }
+}

@@ -1,0 +1,14 @@
+# /etc/gsm-agent/config.yaml
+server_url: https://gsm.example.com
+credentials_file: /var/lib/gsm-agent/credentials
+# Instance data, console logs, backups and agent state live under here:
+#   <data_dir>/instances/<uuid>   mounted at /data in the instance's container
+#   <data_dir>/logs/<uuid>        console.log and install.log
+#   <data_dir>/backups/<uuid>     <backupId>.tar.gz
+#   <data_dir>/state              the last spec the server sent for each instance
+data_dir: /var/lib/gsm
+# How often to send node metrics (also acts as the heartbeat). Minimum 5s.
+metrics_interval: 30s
+log_level: info
+insecure_skip_verify: false
+# Docker is reached through the usual environment (DOCKER_HOST) or /var/run/docker.sock.

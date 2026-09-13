@@ -1,0 +1,24 @@
+# Local development dependencies only. The server and web run natively via `deno task dev`.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: gsm-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: gsm
+      MYSQL_DATABASE: gsm
+      MYSQL_USER: gsm
+      MYSQL_PASSWORD: gsm
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - gsm-mysql-dev:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pgsm"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  gsm-mysql-dev:

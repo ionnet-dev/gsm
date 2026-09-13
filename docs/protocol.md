@@ -1,0 +1,100 @@
+# Wire protocol
+
+All WebSocket traffic uses one JSON envelope. Source of truth: `shared/src/protocol/envelope.ts`
+(zod) mirrored in `agent/internal/protocol/`. `shared/fixtures/hello.json` and
+`shared/fixtures/instance-spec.json` are parsed by both sides' tests.
+
+```jsonc
+{ "t": "req",    "id": "a1", "method": "inst.start", "params": { ... } }
+{ "t": "res",    "id": "a1", "ok": true,  "result": { ... } }
+{ "t": "res",    "id": "a1", "ok": false, "error": { "code": "timeout", "message": "..." } }
+{ "t": "stream", "id": "a1", "seq": 0, "chunk": { ... } }          // tied to the request id
+{ "t": "stream", "id": "a1", "seq": 7, "chunk": null, "done": true } // always sent before the res
+{ "t": "event",  "event": "metrics", "data": { ... } }
+```
+
+Rules
+
+- `PROTOCOL_VERSION` is 1. `hello.protocolVersion` must match or the server closes the socket.
+- Every request has a timeout (server default 30 s; installs, starts and transfers get more).
+- A stream ends with `done: true` before the final `res`.
+- Error codes: `unknown_method`, `invalid_params`, `timeout`, `cancelled`, `unauthorized`,
+  `unavailable`, `internal`, `not_found`.
+
+## Server → agent methods
+
+Schemas: `shared/src/protocol/agent.ts` (`agentMethods`). Params and results are the zod schemas
+named there; this table is the overview.
+
+| Method                    | Params                            | Result / stream                                                             |
+| ------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
+| `agent.ping`              | `{}`                              | `{ at, agentVersion }`                                                      |
+| `agent.configure`         | `{ registryAuth? }`               | `{}` — sent after hello and when settings change                            |
+| `agent.update`            | `{ version, path, sha256 }`       | `{ replaced, message }`; the agent restarts into the new binary             |
+| `sys.inventory`           | `{}`                              | `Inventory`                                                                 |
+| `inst.list`               | `{}`                              | `{ instances: InstanceState[] }` — every container labelled `gsm.instance`  |
+| `inst.status`             | `{ uuid }`                        | `InstanceState`                                                             |
+| `inst.install`            | `{ spec, install }`               | stream `{ lines: ConsoleLine[] }`; result `{ exitCode, durationMs }`        |
+| `inst.start`              | `{ spec }`                        | `InstanceState`                                                             |
+| `inst.stop`               | `{ uuid, force }`                 | `InstanceState` (after the exit)                                            |
+| `inst.restart`            | `{ spec }`                        | `InstanceState`                                                             |
+| `inst.command`            | `{ uuid, command }`               | `{}` — written to the game's stdin                                          |
+| `inst.consoleTail`        | `{ uuid, stream, lines }`         | `{ lines: ConsoleLine[] }` from the node's log file                         |
+| `inst.remove`             | `{ uuid, deleteFiles }`           | `{}`                                                                        |
+| `inst.stats`              | `{ uuids }`                       | `{ stats: InstanceStats[] }`                                                |
+| `fs.list` … `fs.download` | see `files.ts`                    | paths are relative to the instance root; see `docs/architecture.md` → Files |
+| `backup.create`           | `{ uuid, backupId, ignore }`      | stream `{ bytes, files }`; result `{ size, sha256, files }`                 |
+| `backup.restore`          | `{ uuid, backupId, wipe }`        | stream `{ bytes, files }`; result `{ files }`                               |
+| `backup.delete`           | `{ uuid, backupId }`              | `{}`                                                                        |
+| `backup.download`         | `{ opId, token, uuid, backupId }` | `{ size, sha256 }` after posting the bytes                                  |
+| `backup.list`             | `{ uuid }`                        | `{ backups: [{ backupId, size, mtime }] }`                                  |
+| `image.list`              | `{}`                              | `{ images: ImageInfo[] }`                                                   |
+| `image.pull`              | `{ ref }`                         | stream `PullProgress`; result `{ ref, id }`                                 |
+| `image.remove`            | `{ ref }`                         | `{}`                                                                        |
+
+### The instance spec
+
+Every `inst.install`, `inst.start` and `inst.restart` carries the complete `InstanceSpec`
+(`shared/src/protocol/instances.ts`): image, startup command, environment, port bindings, bind
+address, limits, stop behaviour, ready pattern, config files to write, crash policy and the
+container user. The agent stores the last spec it saw per instance under `<data_dir>/state/` so a
+restarted agent can still stop an instance gracefully, but the server is the source of truth and
+resends the spec with every start.
+
+### Console and states
+
+The agent attaches to the container's stdio and batches output into `inst.console` events (`stream`
+is `console` for the game and `install` for install runs), appending the same lines to
+`<data_dir>/logs/<uuid>/console.log`. State changes go out as `inst.status`:
+
+- `starting` after the container starts; `running` once a line matches the spec's `readyPattern`
+  (immediately when there is none);
+- `stopping` while a stop is in progress; `stopped` when the container exits after a stop request or
+  with code 0;
+- `crashed` on any other exit; with `restartOnCrash` the agent restarts it up to three times in ten
+  minutes and says so on the console;
+- `installing` while an install container runs.
+
+Stopping: the stop command (if any) is typed into stdin, the agent waits `stop.timeoutSeconds`, then
+sends `stop.signal` and, ten seconds later, SIGKILL. `inst.stop` with `force` goes straight to
+SIGKILL.
+
+## Agent → server events
+
+| Event          | Data                                           | When                                                  |
+| -------------- | ---------------------------------------------- | ----------------------------------------------------- |
+| `hello`        | `{ protocolVersion, agentVersion, inventory }` | on every connection, first                            |
+| `metrics`      | `Metrics`                                      | every `metrics_interval` (30 s), doubles as heartbeat |
+| `inst.status`  | `InstanceState`                                | on every state change                                 |
+| `inst.console` | `{ uuid, stream, lines }`                      | about every 100 ms while output flows                 |
+| `inst.stats`   | `{ stats: InstanceStats[] }`                   | every 10 s for running instances                      |
+| `agent.log`    | `{ level, message }`                           | notable agent-side events                             |
+
+## Transfers
+
+File bytes never ride the control socket. For an upload the server offers a one-time token; the
+agent `GET`s `/api/v1/agents/transfers/:token` (with its bearer token), writes the file beside its
+destination, `GET`s `…/:token/digest` for the SHA-256 the server counted and renames the file into
+place only if it matches. For a download the agent `POST`s the bytes to the same URL and the server
+answers with the SHA-256 it received, which the agent compares with its own. Unclaimed tokens expire
+after a minute; a stalled stream fails after two.

@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "slug": "minecraft-vanilla",
+  "name": "Minecraft: Java Edition (Vanilla)",
+  "game": "Minecraft: Java Edition",
+  "description": "The official Minecraft server from Mojang. Pick a game version; the server jar is downloaded from Mojang at install time.",
+  "icon": "⛏️",
+  "tags": [
+    "minecraft",
+    "vanilla",
+    "java"
+  ],
+  "image": "ghcr.io/ionnet-dev/gsm-java:25",
+  "images": [
+    {
+      "label": "Java 25 (Minecraft 26.1 and newer)",
+      "ref": "ghcr.io/ionnet-dev/gsm-java:25"
+    },
+    {
+      "label": "Java 21 (Minecraft 1.20.5 – 1.21.x)",
+      "ref": "ghcr.io/ionnet-dev/gsm-java:21"
+    },
+    {
+      "label": "Java 17 (Minecraft 1.17 – 1.20.4)",
+      "ref": "ghcr.io/ionnet-dev/gsm-java:17"
+    },
+    {
+      "label": "Java 8 (Minecraft 1.16 and older)",
+      "ref": "ghcr.io/ionnet-dev/gsm-java:8"
+    }
+  ],
+  "install": {
+    "image": null,
+    "script": "#!/bin/sh\n# Ionnet GSM install: Minecraft Java Edition (vanilla). Runs as the instance user in /data.\nset -eu\ncd /data\necho \"Downloading Minecraft server ${MC_VERSION} ...\"\ncurl -fsSL --retry 3 -o server.jar.tmp \"$SERVER_JAR_URL\"\nif [ -n \"${SERVER_JAR_SHA1:-}\" ] && command -v sha1sum >/dev/null; then\n  echo \"$SERVER_JAR_SHA1  server.jar.tmp\" | sha1sum -c --quiet - || { echo \"checksum mismatch\" >&2; exit 1; }\nfi\nmv server.jar.tmp server.jar\necho \"eula=${EULA:-false}\" > eula.txt\n[ -f server.properties ] || printf 'server-port=%s\\nmotd=%s\\n' \"${GSM_PORT_GAME:-25565}\" \"${MOTD:-A Minecraft Server}\" > server.properties\necho \"Install complete.\"\n",
+    "resolver": "minecraft-vanilla",
+    "timeoutSeconds": 1800
+  },
+  "startup": "java -Xms256M -Xmx{{GSM_HEAP_MB}}M {{JVM_FLAGS}} -jar server.jar nogui",
+  "stop": {
+    "command": "stop",
+    "signal": "SIGTERM",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "readyPattern": "Done \\([0-9.]+s\\)! For help"
+  },
+  "variables": [
+    {
+      "name": "MC_VERSION",
+      "label": "Minecraft version",
+      "type": "version",
+      "default": "",
+      "required": true,
+      "versionSource": "minecraft:vanilla",
+      "editable": false,
+      "description": "The game version to install. Changing it needs a reinstall."
+    },
+    {
+      "name": "EULA",
+      "label": "Accept the Minecraft EULA",
+      "type": "boolean",
+      "default": "false",
+      "required": true,
+      "description": "Set to true to accept the Minecraft End User License Agreement (https://aka.ms/MinecraftEULA). The server refuses to start otherwise."
+    },
+    {
+      "name": "MOTD",
+      "label": "Server message (MOTD)",
+      "type": "text",
+      "default": "A Minecraft Server",
+      "description": "Shown in the server list."
+    },
+    {
+      "name": "MAX_PLAYERS",
+      "label": "Max players",
+      "type": "number",
+      "default": "20",
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "DIFFICULTY",
+      "label": "Difficulty",
+      "type": "select",
+      "default": "normal",
+      "options": [
+        {
+          "value": "peaceful",
+          "label": "Peaceful"
+        },
+        {
+          "value": "easy",
+          "label": "Easy"
+        },
+        {
+          "value": "normal",
+          "label": "Normal"
+        },
+        {
+          "value": "hard",
+          "label": "Hard"
+        }
+      ]
+    },
+    {
+      "name": "GAMEMODE",
+      "label": "Default game mode",
+      "type": "select",
+      "default": "survival",
+      "options": [
+        {
+          "value": "survival",
+          "label": "Survival"
+        },
+        {
+          "value": "creative",
+          "label": "Creative"
+        },
+        {
+          "value": "adventure",
+          "label": "Adventure"
+        },
+        {
+          "value": "spectator",
+          "label": "Spectator"
+        }
+      ]
+    },
+    {
+      "name": "VIEW_DISTANCE",
+      "label": "View distance (chunks)",
+      "type": "number",
+      "default": "10",
+      "min": 3,
+      "max": 32
+    },
+    {
+      "name": "ONLINE_MODE",
+      "label": "Online mode",
+      "type": "boolean",
+      "default": "true",
+      "description": "Verify players against Mojang's servers. Turn off only for offline or proxied setups."
+    },
+    {
+      "name": "LEVEL_SEED",
+      "label": "World seed",
+      "type": "text",
+      "default": "",
+      "description": "Leave empty for a random seed. Only used when the world is first generated."
+    },
+    {
+      "name": "JVM_FLAGS",
+      "label": "Extra JVM flags",
+      "type": "text",
+      "default": "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1",
+      "description": "Garbage collector tuning appended to the java command. The heap size is set from the memory limit.",
+      "editable": true
+    }
+  ],
+  "ports": [
+    {
+      "name": "game",
+      "label": "Game port",
+      "protocol": "tcp",
+      "default": 25565,
+      "primary": true
+    }
+  ],
+  "files": [
+    {
+      "path": "server.properties",
+      "format": "properties",
+      "values": {
+        "server-port": "{{GSM_PORT_GAME}}",
+        "query.port": "{{GSM_PORT_GAME}}",
+        "server-ip": "",
+        "motd": "{{MOTD}}",
+        "max-players": "{{MAX_PLAYERS}}",
+        "difficulty": "{{DIFFICULTY}}",
+        "gamemode": "{{GAMEMODE}}",
+        "view-distance": "{{VIEW_DISTANCE}}",
+        "online-mode": "{{ONLINE_MODE}}",
+        "level-seed": "{{LEVEL_SEED}}",
+        "enable-rcon": "false"
+      }
+    },
+    {
+      "path": "eula.txt",
+      "format": "properties",
+      "values": {
+        "eula": "{{EULA}}"
+      }
+    }
+  ],
+  "resources": {
+    "memoryMb": 4096,
+    "cpuCores": 0,
+    "diskMb": 0
+  },
+  "restartOnCrash": true,
+  "backupIgnore": [
+    "logs/**",
+    "cache/**",
+    "*.jar.tmp"
+  ]
+}

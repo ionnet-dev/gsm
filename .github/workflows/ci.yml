@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno install --allow-scripts
+      - run: deno fmt --check
+      - run: deno check shared/src/mod.ts
+      - run: cd server && deno check src/main.ts
+      - run: cd web && deno run -A npm:vite build
+      - run: SESSION_SECRET=test-only-secret-test-only-secret-0000 deno test -A shared/tests server/tests
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - run: cd agent && gofmt -l . && test -z "$(gofmt -l .)"
+      - run: cd agent && go vet ./...
+      - run: cd agent && go test ./...
+      - run: cd agent && CGO_ENABLED=0 go build -o /tmp/gsm-agent ./cmd/gsm-agent
