@@ -330,9 +330,12 @@ export async function update(
   if (input.limits !== undefined) i.limits = input.limits;
   if (input.restartOnCrash !== undefined) i.restartOnCrash = input.restartOnCrash;
   if (input.autoStart !== undefined) i.autoStart = input.autoStart;
-  if (input.startupOverride !== undefined) {
+  const startupOverride = input.startupOverride === undefined
+    ? i.startupOverride
+    : input.startupOverride?.trim() || null;
+  if (startupOverride !== i.startupOverride) {
     if (role !== "owner") throw forbidden("Only an owner may change the startup command");
-    i.startupOverride = input.startupOverride?.trim() || null;
+    i.startupOverride = startupOverride;
   }
   await sequelize.transaction(async (transaction) => {
     await i.save({ transaction });

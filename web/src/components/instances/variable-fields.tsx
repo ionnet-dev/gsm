@@ -15,20 +15,22 @@ import { Switch } from "@/components/ui/switch";
 
 /**
  * Inputs for a template's variables by type. `values` holds every variable (defaults filled);
- * `editable` false renders the value read-only; hidden (`viewable` false) variables are skipped.
+ * `editable` false renders the value read-only and hidden (`viewable` false) variables are skipped,
+ * except for owners.
  */
 export function VariableFields({
   variables,
   values,
   onChange,
-  admin,
+  owner,
 }: {
   variables: TemplateVariable[];
   values: Record<string, string>;
   onChange: (name: string, value: string) => void;
-  admin: boolean;
+  /** The instance's owners (admins and node owners included) see and change every variable. */
+  owner: boolean;
 }) {
-  const shown = variables.filter((v) => admin || v.viewable);
+  const shown = variables.filter((v) => owner || v.viewable);
   if (!shown.length) {
     return <p className="text-xs text-muted-foreground">This template has no variables.</p>;
   }
@@ -40,7 +42,7 @@ export function VariableFields({
           variable={v}
           value={values[v.name] ?? ""}
           values={values}
-          readOnly={!admin && !v.editable}
+          readOnly={!owner && !v.editable}
           onChange={(val) => onChange(v.name, val)}
         />
       ))}
@@ -65,7 +67,7 @@ function VariableField({
   const id = `var-${v.name}`;
   const hint = [
     v.description,
-    readOnly ? "Set by the template; only administrators change it." : "",
+    readOnly ? "Set by the template; only an owner changes it." : "",
   ]
     .filter(Boolean).join(" ");
   const wide = v.type === "text" && v.default.length > 40;

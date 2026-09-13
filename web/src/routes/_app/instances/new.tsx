@@ -357,7 +357,7 @@ function ConfigureStep({
             variables={def.variables}
             values={variables}
             onChange={(n, v) => setVariables((s) => ({ ...s, [n]: v }))}
-            admin
+            owner
           />
         </CardContent>
       </Card>

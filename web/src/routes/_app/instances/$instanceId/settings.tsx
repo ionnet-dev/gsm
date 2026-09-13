@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { InstanceDetailDto, TemplateDetailDto } from "@gsm/shared";
 import { BUILTIN_VARIABLES, roleAllows, validateVariable } from "@gsm/shared";
-import { useAuth } from "@/api/auth";
 import { errorMessage } from "@/api/client";
 import { useInstance, useInstanceMutations } from "@/api/instances";
 import { useNode } from "@/api/nodes";
@@ -44,11 +43,12 @@ function SettingsForm(
   { instance: i, template }: { instance: InstanceDetailDto; template: TemplateDetailDto },
 ) {
   const navigate = useNavigate();
-  const { admin } = useAuth();
   const { update, reinstall, remove } = useInstanceMutations();
   const { data: nodeDetail } = useNode(i.node.id);
   const def = template.definition;
   const canSettings = roleAllows(i.myRole, "settings");
+  // Admins and the node's owners are owners too: they see hidden and change fixed values.
+  const owner = i.myRole === "owner";
   const running = i.status !== "stopped" && i.status !== "crashed" && i.status !== "install_failed";
   const [name, setName] = useState(i.name);
   const [description, setDescription] = useState(i.description ?? "");
@@ -100,7 +100,7 @@ function SettingsForm(
         variables,
         restartOnCrash,
         autoStart,
-        startupOverride: startup.trim() || null,
+        ...(owner ? { startupOverride: startup.trim() || null } : {}),
         ...(running ? {} : {
           image,
           limits,
@@ -235,10 +235,10 @@ function SettingsForm(
           </CardHeader>
           <CardContent className="grid gap-3">
             <VariableFields
-              variables={def.variables.filter((v) => v.name in variables || admin)}
+              variables={def.variables.filter((v) => v.name in variables || owner)}
               values={variables}
               onChange={(n, v) => setVariables((s) => ({ ...s, [n]: v }))}
-              admin={admin}
+              owner={owner}
             />
             <p className="text-xs text-muted-foreground">
               Changes apply at the next start. Version changes need a reinstall.
@@ -253,7 +253,9 @@ function SettingsForm(
             <Field
               label="Override"
               htmlFor="sstart"
-              hint="Empty uses the template's command. Placeholders like {{GSM_HEAP_MB}} are substituted."
+              hint={`Empty uses the template's command. Placeholders like {{GSM_HEAP_MB}} are substituted.${
+                owner ? "" : " Only an owner changes it."
+              }`}
             >
               <Textarea
                 id="sstart"
@@ -262,7 +264,7 @@ function SettingsForm(
                 rows={3}
                 className="font-mono"
                 placeholder={def.startup}
-                disabled={!admin && !roleAllows(i.myRole, "settings")}
+                disabled={!owner}
               />
             </Field>
             <details className="text-xs text-muted-foreground">

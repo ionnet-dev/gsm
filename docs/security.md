@@ -56,9 +56,9 @@ What access to an instance means in practice:
   and symlinks that leave it. Files are owned by uid 1500 (the container user), never root.
 - The **startup command** and **install script** run inside the instance's container: the startup
   command and the install script both as uid 1500 with the instance's directory mounted (the install
-  in a one-off container). An operator who can edit the startup override or a template can therefore
-  run arbitrary code _inside a container on the node_ with the instance's files, memory and CPU
-  limits, but not on the node itself. Only admins edit templates.
+  in a one-off container). An owner, who can edit the startup override, or an admin editing a
+  template can therefore run arbitrary code _inside a container on the node_ with the instance's
+  files, memory and CPU limits, but not on the node itself. Only admins edit templates.
 - **Backups** are archives of the instance directory, stored on the node and downloadable through
   the panel.
 - **Player actions** (kick, ban, op, …) are console commands from the template, so they allow
