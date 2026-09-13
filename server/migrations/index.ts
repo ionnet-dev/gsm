@@ -7,6 +7,7 @@ import * as m0004 from "./0004-nodes.ts";
 import * as m0005 from "./0005-templates.ts";
 import * as m0006 from "./0006-instances.ts";
 import * as m0007 from "./0007-backups.ts";
+import * as m0008 from "./0008-players.ts";
 
 export const migrations: Migration[] = [
   { name: "0001-settings", ...m0001 },
@@ -16,4 +17,5 @@ export const migrations: Migration[] = [
   { name: "0005-templates", ...m0005 },
   { name: "0006-instances", ...m0006 },
   { name: "0007-backups", ...m0007 },
+  { name: "0008-players", ...m0008 },
 ];

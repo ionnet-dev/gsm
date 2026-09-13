@@ -112,6 +112,16 @@ without access to an instance gets 404 for it, with access but not the permissio
 | POST   | `/:backupId/download` | `{ url, filename, size }` one-time ticket like a file download              |
 | DELETE | `/:backupId`          |                                                                             |
 
+### Players, under `/instances/:id/players`
+
+Only for templates with a `players` section (`InstanceDto.players` is null otherwise).
+
+| Method | Path       | Permission | Notes                                                                                                     |
+| ------ | ---------- | ---------- | --------------------------------------------------------------------------------------------------------- |
+| GET    | ``         | view       | `InstancePlayersDto`: online and recent players; `lists` and `actions` only with the `players` permission |
+| POST   | `/refresh` | players    | reads the lists again and, while running, types the template's list command → `{ ok }`                    |
+| POST   | `/actions` | players    | `PlayerActionBody` → `{ ok, command }`; 409 when not running, 400 with per-field `details` for bad values |
+
 ## Live updates
 
 `/ws/ui` pushes `uiEvents` (see `shared/src/protocol/ui.ts`). Browsers send
@@ -119,3 +129,6 @@ without access to an instance gets 404 for it, with access but not the permissio
 `{ "t": "unsub", "instanceId" }` to stop. Node and template events reach admins only; instance
 events reach users with access to the instance. Close code 4002 means "reconnect now" (access
 changed), 4001 that the session ended.
+
+`instance.players` (`{ instanceId, online }`) follows every join, leave, list answer and change to
+the game's player lists; the web app patches `InstanceDto.players` and refetches the Players tab.

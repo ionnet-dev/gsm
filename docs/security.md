@@ -36,7 +36,8 @@ instance access; treat them like passwords (they can be revoked under My account
 - `admin` manages nodes, templates, users, settings and every instance.
 - `user` sees nothing but the instances they were given access to. On each instance their role is
   `owner` (everything, including sharing and deleting), `operator` (start, stop, console commands,
-  files, backups, settings) or `viewer` (watch the console and status).
+  files, backups, settings, player actions) or `viewer` (watch the console, the status and who is
+  online).
 
 A user's UI socket is closed and reopened when their access changes, so live events never leak
 across a revoked grant. Instances a user cannot see answer 404, so ids cannot be probed.
@@ -53,6 +54,11 @@ What access to an instance means in practice:
   limits, but not on the node itself. Only admins edit templates.
 - **Backups** are archives of the instance directory, stored on the node and downloadable through
   the panel.
+- **Player actions** (kick, ban, op, …) are console commands from the template, so they allow
+  nothing a console command would not. Player names must match the template's name pattern (no
+  `@a`-style selectors), values may not contain line breaks, and each action is audited with the
+  command it typed. The Players tab reads the game's list files (operators, bans, whitelist) without
+  a `file.view` entry per read; viewers are not shown those lists.
 
 ## Agents and nodes
 

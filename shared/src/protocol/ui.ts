@@ -31,6 +31,8 @@ export const uiEvents = {
     stream: z.enum(CONSOLE_STREAMS),
     lines: z.array(ConsoleLine),
   }),
+  /** Someone joined or left, or a player list changed; `online` is the new count. */
+  "instance.players": z.object({ instanceId: z.number().int(), online: z.number().int() }),
   "backup.updated": z.object({ instanceId: z.number().int(), backupId: z.string() }),
   "template.updated": z.object({ templateId: z.number().int() }),
   "image.pull": z.object({

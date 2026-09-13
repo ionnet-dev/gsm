@@ -202,5 +202,282 @@
     "logs/**",
     "cache/**",
     "*.jar.tmp"
-  ]
+  ],
+  "players": {
+    "namePattern": "^[A-Za-z0-9_]{1,16}$",
+    "console": {
+      "join": "^\\[[^\\]]+\\] \\[[^\\]]+\\](?: \\[[^\\]]+\\])?: (?<name>[A-Za-z0-9_]{1,16})\\[[^\\]]*\\] logged in with entity id",
+      "leave": "^\\[[^\\]]+\\] \\[[^\\]]+\\](?: \\[[^\\]]+\\])?: (?<name>[A-Za-z0-9_]{1,16}) lost connection: ",
+      "identify": "^\\[[^\\]]+\\] \\[[^\\]]+\\](?: \\[[^\\]]+\\])?: UUID of player (?<name>[A-Za-z0-9_]{1,16}) is (?<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+      "refresh": "(?:Made [A-Za-z0-9_]{1,16} (?:a|no longer a) server operator|Banned [A-Za-z0-9_]{1,16}|Unbanned [A-Za-z0-9_]{1,16}|(?:Added|Removed) [A-Za-z0-9_]{1,16} (?:to|from) the whitelist|Reloaded the whitelist)"
+    },
+    "list": {
+      "command": "list uuids",
+      "pattern": "^\\[[^\\]]+\\] \\[[^\\]]+\\](?: \\[[^\\]]+\\])?: There are \\d+ of a max(?: of)? \\d+ players online:(?<names>.*)$",
+      "separator": ",",
+      "entry": "^(?<name>[A-Za-z0-9_]{1,16})(?: \\((?<id>[0-9a-f-]{36})\\))?$"
+    },
+    "lists": [
+      {
+        "id": "ops",
+        "label": "Operators",
+        "badge": "Operator",
+        "path": "ops.json",
+        "format": "json",
+        "nameKey": "name",
+        "idKey": "uuid",
+        "columns": [
+          {
+            "key": "level",
+            "label": "Level"
+          }
+        ]
+      },
+      {
+        "id": "banned",
+        "label": "Banned",
+        "badge": "Banned",
+        "path": "banned-players.json",
+        "format": "json",
+        "nameKey": "name",
+        "idKey": "uuid",
+        "columns": [
+          {
+            "key": "reason",
+            "label": "Reason"
+          },
+          {
+            "key": "source",
+            "label": "Banned by"
+          },
+          {
+            "key": "created",
+            "label": "Since"
+          },
+          {
+            "key": "expires",
+            "label": "Expires"
+          }
+        ]
+      },
+      {
+        "id": "whitelist",
+        "label": "Whitelist",
+        "badge": "Whitelisted",
+        "path": "whitelist.json",
+        "format": "json",
+        "nameKey": "name",
+        "idKey": "uuid",
+        "columns": []
+      }
+    ],
+    "actions": [
+      {
+        "id": "message",
+        "label": "Send a message",
+        "group": "Player",
+        "icon": "message",
+        "command": "tell {{PLAYER}} {{MESSAGE}}",
+        "online": true,
+        "fields": [
+          {
+            "name": "MESSAGE",
+            "label": "Message",
+            "type": "text",
+            "required": true,
+            "placeholder": "Hello from the panel"
+          }
+        ]
+      },
+      {
+        "id": "gamemode",
+        "label": "Change game mode",
+        "group": "Player",
+        "icon": "gamemode",
+        "command": "gamemode {{MODE}} {{PLAYER}}",
+        "online": true,
+        "fields": [
+          {
+            "name": "MODE",
+            "label": "Game mode",
+            "type": "select",
+            "required": true,
+            "default": "survival",
+            "options": [
+              {
+                "value": "survival",
+                "label": "Survival"
+              },
+              {
+                "value": "creative",
+                "label": "Creative"
+              },
+              {
+                "value": "adventure",
+                "label": "Adventure"
+              },
+              {
+                "value": "spectator",
+                "label": "Spectator"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "teleport",
+        "label": "Teleport to a player",
+        "group": "Player",
+        "icon": "teleport",
+        "command": "tp {{PLAYER}} {{TARGET}}",
+        "online": true,
+        "fields": [
+          {
+            "name": "TARGET",
+            "label": "Teleport to",
+            "type": "player",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "give",
+        "label": "Give an item",
+        "group": "Player",
+        "icon": "give",
+        "command": "give {{PLAYER}} {{ITEM}} {{COUNT}}",
+        "online": true,
+        "fields": [
+          {
+            "name": "ITEM",
+            "label": "Item",
+            "type": "text",
+            "required": true,
+            "default": "minecraft:diamond",
+            "placeholder": "minecraft:diamond"
+          },
+          {
+            "name": "COUNT",
+            "label": "Count",
+            "type": "number",
+            "required": true,
+            "default": "1",
+            "min": 1,
+            "max": 6400
+          }
+        ]
+      },
+      {
+        "id": "clear",
+        "label": "Clear inventory",
+        "group": "Player",
+        "icon": "clear",
+        "command": "clear {{PLAYER}}",
+        "online": true,
+        "danger": true
+      },
+      {
+        "id": "kill",
+        "label": "Kill",
+        "group": "Player",
+        "icon": "kill",
+        "command": "kill {{PLAYER}}",
+        "online": true,
+        "danger": true
+      },
+      {
+        "id": "kick",
+        "label": "Kick",
+        "group": "Moderation",
+        "icon": "kick",
+        "command": "kick {{PLAYER}} {{REASON}}",
+        "online": true,
+        "danger": true,
+        "fields": [
+          {
+            "name": "REASON",
+            "label": "Reason",
+            "type": "text",
+            "placeholder": "Shown to the player"
+          }
+        ]
+      },
+      {
+        "id": "ban",
+        "label": "Ban",
+        "group": "Moderation",
+        "icon": "ban",
+        "command": "ban {{PLAYER}} {{REASON}}",
+        "danger": true,
+        "fields": [
+          {
+            "name": "REASON",
+            "label": "Reason",
+            "type": "text",
+            "placeholder": "Shown to the player"
+          }
+        ],
+        "when": {
+          "list": "banned",
+          "is": false
+        }
+      },
+      {
+        "id": "pardon",
+        "label": "Unban",
+        "group": "Moderation",
+        "icon": "unban",
+        "command": "pardon {{PLAYER}}",
+        "when": {
+          "list": "banned",
+          "is": true
+        }
+      },
+      {
+        "id": "op",
+        "label": "Make operator",
+        "group": "Permissions",
+        "icon": "op",
+        "command": "op {{PLAYER}}",
+        "danger": true,
+        "when": {
+          "list": "ops",
+          "is": false
+        }
+      },
+      {
+        "id": "deop",
+        "label": "Remove operator",
+        "group": "Permissions",
+        "icon": "deop",
+        "command": "deop {{PLAYER}}",
+        "when": {
+          "list": "ops",
+          "is": true
+        }
+      },
+      {
+        "id": "whitelist-add",
+        "label": "Add to whitelist",
+        "group": "Permissions",
+        "icon": "whitelist",
+        "command": "whitelist add {{PLAYER}}",
+        "when": {
+          "list": "whitelist",
+          "is": false
+        }
+      },
+      {
+        "id": "whitelist-remove",
+        "label": "Remove from whitelist",
+        "group": "Permissions",
+        "icon": "unwhitelist",
+        "command": "whitelist remove {{PLAYER}}",
+        "when": {
+          "list": "whitelist",
+          "is": true
+        }
+      }
+    ]
+  }
 }

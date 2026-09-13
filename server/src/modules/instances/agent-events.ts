@@ -4,6 +4,7 @@ import { Instance } from "../../db/models.ts";
 import { events } from "../../lib/events.ts";
 import { log } from "../../lib/logger.ts";
 import { uiGateway } from "../../ws/ui-gateway.ts";
+import * as players from "../players/service.ts";
 import { getGeneral } from "../settings/service.ts";
 import { consoleHistory } from "./console.ts";
 
@@ -44,6 +45,7 @@ export async function applyState(instance: Instance, state: InstanceState): Prom
   }
   if (state.installed && !instance.installedAt) instance.installedAt = new Date();
   if (instance.changed()) await instance.save();
+  if (before !== instance.status) players.onStatus(instance.id, instance.status);
   if (before !== instance.status || state.error) {
     uiGateway.broadcast("instance.status", {
       instanceId: instance.id,
@@ -77,6 +79,7 @@ export async function pushConsole(
   }
   consoleHistory.append(instanceId, stream, lines);
   uiGateway.broadcast("instance.console", { instanceId, stream, lines });
+  if (stream === "console") players.onConsole(instanceId, lines);
 }
 
 export async function onConsole(

@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, pluralize } from "@/lib/format";
 import { INSTANCE_STATUS_LABEL } from "@/lib/status";
 
 const Search_ = z.object({
@@ -183,6 +183,11 @@ function InstancesPage() {
                     </TableCell>
                     <TableCell>
                       <InstanceStatusBadge status={i.status} />
+                      {i.players && i.status === "running" && (
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {pluralize(i.players.online, "player")} online
+                        </div>
+                      )}
                     </TableCell>
                     {admin && (
                       <TableCell className="text-xs">

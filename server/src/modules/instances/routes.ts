@@ -15,6 +15,7 @@ import { auditFrom } from "../audit/service.ts";
 import { currentUser, requireAuth, requireRole } from "../auth/middleware.ts";
 import { instanceBackupRoutes } from "../backups/routes.ts";
 import { instanceFileRoutes } from "../files/routes.ts";
+import { instancePlayerRoutes } from "../players/routes.ts";
 import { assertInstancePermission, instanceScope, roleOn } from "./access.ts";
 import * as instances from "./service.ts";
 
@@ -23,6 +24,7 @@ instanceRoutes.use("*", requireAuth);
 
 instanceRoutes.route("/:id/files", instanceFileRoutes);
 instanceRoutes.route("/:id/backups", instanceBackupRoutes);
+instanceRoutes.route("/:id/players", instancePlayerRoutes);
 
 instanceRoutes.get("/", async (c) => {
   const q = parseQuery(c, ListInstancesQuery);

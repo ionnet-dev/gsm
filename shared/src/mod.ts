@@ -17,3 +17,4 @@ export * from "./api/templates.ts";
 export * from "./api/instances.ts";
 export * from "./api/backups.ts";
 export * from "./api/files.ts";
+export * from "./api/players.ts";

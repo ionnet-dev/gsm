@@ -1,4 +1,4 @@
-import type { TemplateDefinitionInput, TemplateVariable } from "@gsm/shared";
+import type { TemplateDefinitionInput, TemplatePlayers, TemplateVariable } from "@gsm/shared";
 
 /** A minimal generic template new custom templates start from. */
 export const GENERIC_TEMPLATE: TemplateDefinitionInput = {
@@ -44,4 +44,13 @@ export const NEW_VARIABLE: TemplateVariable = {
   editable: true,
   viewable: true,
   pattern: null,
+};
+
+/** A players section to start from: no patterns, lists or actions yet. */
+export const STARTER_PLAYERS: TemplatePlayers = {
+  namePattern: "^[A-Za-z0-9_]{1,32}$",
+  console: { join: null, leave: null, identify: null, refresh: null },
+  list: null,
+  lists: [],
+  actions: [],
 };

@@ -11,6 +11,7 @@ import { AgentRelease } from "../modules/releases/models.ts";
 import { EnrollmentToken, Node } from "../modules/nodes/models.ts";
 import { Template } from "../modules/templates/models.ts";
 import { Backup, Instance, InstancePort, InstanceUser } from "../modules/instances/models.ts";
+import { InstancePlayer } from "../modules/players/models.ts";
 
 Session.belongsTo(User, { as: "user", foreignKey: "userId" });
 User.hasMany(Session, { as: "sessions", foreignKey: "userId" });
@@ -42,6 +43,8 @@ User.hasMany(InstanceUser, { as: "instanceAccess", foreignKey: "userId" });
 Backup.belongsTo(Instance, { as: "instance", foreignKey: "instanceId" });
 Instance.hasMany(Backup, { as: "backups", foreignKey: "instanceId" });
 Backup.belongsTo(User, { as: "creator", foreignKey: "createdBy" });
+InstancePlayer.belongsTo(Instance, { as: "instance", foreignKey: "instanceId" });
+Instance.hasMany(InstancePlayer, { as: "players", foreignKey: "instanceId" });
 
 export {
   AgentRelease,
@@ -50,6 +53,7 @@ export {
   Backup,
   EnrollmentToken,
   Instance,
+  InstancePlayer,
   InstancePort,
   InstanceUser,
   LoginChallenge,

@@ -66,9 +66,10 @@ list under Deno). They run automatically at startup when `AUTO_MIGRATE=true`.
 A template (`shared/src/api/templates.ts`, `TemplateDefinition`) says how to install and run one
 kind of server: the runtime image (and alternatives), an install script and its resolver, the
 startup command, typed variables, ports, config files kept in step with the variables, stop
-behaviour and the console "ready" pattern. Built-ins under `templates/*.json` are seeded on start
-(`modules/templates/seed.ts`): a changed file bumps the row's `revision`. Built-ins cannot be
-edited; copy one to customise. Custom templates are stored the same way with `builtin = false`.
+behaviour, the console "ready" pattern and, optionally, how to see and manage players (see Players
+below). Built-ins under `templates/*.json` are seeded on start (`modules/templates/seed.ts`): a
+changed file bumps the row's `revision`. Built-ins cannot be edited; copy one to customise. Custom
+templates are stored the same way with `builtin = false`.
 
 **Version sources** (`GET /templates/versions?source=`) list game versions for `version` variables:
 `minecraft:vanilla` from Mojang's manifest, `minecraft:forge` and `minecraft:neoforge` from their
@@ -122,7 +123,36 @@ Backups are `.tar.gz` archives under `<dataDir>/backups/<uuid>/` made by the age
 progress streamed), recorded in `backups` with size and SHA-256. Restoring requires a stopped
 instance. Downloads go through the same transfer relay.
 
+## Players
+
+A template may declare a `players` section (`TemplatePlayers` in `shared/src/api/templates.ts`); the
+built-in Minecraft templates do. The agent knows nothing about players: the server reads them out of
+the console stream it already receives, and acts with `inst.command` and `fs.read`. The code is in
+`modules/players/` (`parse.ts` is the pure part).
+
+- **Online**: every `inst.console` batch of the game stream is matched against the template's
+  `join`, `leave` and `identify` patterns, strictly in order per instance, and folded into
+  `instance_players` (one row per instance and name; names compare case-insensitively). A line
+  matching `list.pattern` is the whole truth and replaces the online set. Minecraft uses the
+  `… logged in with entity id` and `… lost connection:` lines (they carry the plain name, unlike
+  "joined the game"), anchored to the log prefix so chat cannot imitate them, and `list uuids`.
+- **Resync**: stopping, crashing, starting and installing mark everyone offline. After every agent
+  hello the supervisor types the template's `list.command` into each running instance, because
+  console lines sent while the node was away are lost; the Players tab's Refresh does the same.
+- **Recent players** are offline rows seen in the last 30 days; housekeeping forgets them after 90.
+- **Lists** (operators, bans, whitelist) are files in the instance, read with `fs.read` as `json`
+  arrays or plain `lines`, cached for 30 s and read again when a console line matches
+  `console.refresh` or an action ran. A missing file is an empty list.
+- **Actions** are one console command each, with `{{PLAYER}}`, `{{PLAYER_ID}}` and field
+  placeholders. The server checks the name against `namePattern` (which keeps out selectors such as
+  `@a`) and each field against its type, refuses line breaks, and drops an empty optional field with
+  the space before it. `online` limits an action to online players and `when` to players on (or not
+  on) a list, so Ban and Unban, Op and Deop show one at a time.
+- Browsers get `instance.players` after each change; `InstanceDto.players.online` is the count, kept
+  in memory and loaded at start.
+
 ## Single-node assumptions
 
-Background loops, console buffers and the in-memory agent registry assume one server process.
-Horizontal scaling would need a shared pub/sub for UI events and a distributed lock for loops.
+Background loops, console buffers, player tracking and the in-memory agent registry assume one
+server process. Horizontal scaling would need a shared pub/sub for UI events and a distributed lock
+for loops.

@@ -7,6 +7,7 @@ import { events } from "../../lib/events.ts";
 import { log } from "../../lib/logger.ts";
 import { agentGateway } from "../../ws/agent-gateway.ts";
 import { uiGateway } from "../../ws/ui-gateway.ts";
+import * as players from "../players/service.ts";
 import { applyState } from "./agent-events.ts";
 import * as instances from "./service.ts";
 
@@ -34,10 +35,15 @@ async function reconcile(nodeId: number) {
         row.status = status;
         row.containerId = null;
         await row.save();
+        players.onStatus(row.id, status);
         uiGateway.broadcast("instance.status", { instanceId: row.id, status, error: row.error });
       }
     }
   }
+  // Console lines sent while the node was away are lost; ask the games who is online.
+  players.resync(rows.filter((r) => r.status === "running").map((r) => r.id)).catch((err) =>
+    slog.warn("player resync failed", { nodeId, err: String(err) })
+  );
   // Auto-start after the states are known, one at a time so a node is not flooded.
   for (const row of rows) {
     if (!row.autoStart || !row.installedAt) continue;

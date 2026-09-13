@@ -63,3 +63,30 @@ export type SecondFactor = (typeof SECOND_FACTORS)[number];
 /** Which console a line belongs to: the game's own, or an install run's. */
 export const CONSOLE_STREAMS = ["console", "install"] as const;
 export type ConsoleStream = (typeof CONSOLE_STREAMS)[number];
+
+/** How a template's player list file is read: a JSON array of objects, or one name per line. */
+export const PLAYER_LIST_FORMATS = ["json", "lines"] as const;
+export type PlayerListFormat = (typeof PLAYER_LIST_FORMATS)[number];
+
+/** Inputs a player action can ask for; `player` picks another player who is online. */
+export const PLAYER_FIELD_TYPES = ["text", "number", "select", "player"] as const;
+export type PlayerFieldType = (typeof PLAYER_FIELD_TYPES)[number];
+
+/** Icons the web app draws next to a player action. */
+export const PLAYER_ACTION_ICONS = [
+  "command",
+  "message",
+  "gamemode",
+  "teleport",
+  "give",
+  "clear",
+  "kill",
+  "kick",
+  "ban",
+  "unban",
+  "op",
+  "deop",
+  "whitelist",
+  "unwhitelist",
+] as const;
+export type PlayerActionIcon = (typeof PLAYER_ACTION_ICONS)[number];

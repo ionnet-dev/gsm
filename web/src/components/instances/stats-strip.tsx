@@ -1,6 +1,7 @@
 import type { InstanceDto } from "@gsm/shared";
 import { MetricBar } from "@/components/data/metric-bar";
-import { formatBytes, formatUptime } from "@/lib/format";
+import { formatBytes, formatUptime, pluralize } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /** CPU, memory, uptime and network for one instance, from its latest stats sample. */
 export function StatsStrip({ instance }: { instance: InstanceDto }) {
@@ -9,7 +10,12 @@ export function StatsStrip({ instance }: { instance: InstanceDto }) {
     : null;
   const memPct = s && s.memLimitBytes > 0 ? (s.memUsedBytes / s.memLimitBytes) * 100 : null;
   return (
-    <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card px-4 py-3 text-xs sm:grid-cols-4 lg:grid-cols-6">
+    <div
+      className={cn(
+        "grid grid-cols-2 gap-3 rounded-lg border bg-card px-4 py-3 text-xs sm:grid-cols-4",
+        instance.players ? "lg:grid-cols-7" : "lg:grid-cols-6",
+      )}
+    >
       <Stat label="CPU">
         <MetricBar value={s ? Math.min(100, s.cpuPct) : null} />
       </Stat>
@@ -31,6 +37,13 @@ export function StatsStrip({ instance }: { instance: InstanceDto }) {
       <Stat label="Uptime">
         <span className="font-mono">{s ? formatUptime(s.uptimeSeconds) : "—"}</span>
       </Stat>
+      {instance.players && (
+        <Stat label="Players">
+          <span className="font-mono">
+            {s ? `${pluralize(instance.players.online, "player")} online` : "—"}
+          </span>
+        </Stat>
+      )}
       <Stat label="Network">
         <span className="font-mono">
           {s ? `↓ ${formatBytes(s.netRxBytes, 0)} ↑ ${formatBytes(s.netTxBytes, 0)}` : "—"}

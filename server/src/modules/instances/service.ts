@@ -27,6 +27,7 @@ import { agentGateway, AgentRpcError } from "../../ws/agent-gateway.ts";
 import { uiGateway } from "../../ws/ui-gateway.ts";
 import * as audit from "../audit/service.ts";
 import { publicAddressOf } from "../nodes/service.ts";
+import * as players from "../players/service.ts";
 import { getGeneral } from "../settings/service.ts";
 import { resolveInstall } from "../templates/versions.ts";
 import type { InstanceScope } from "./access.ts";
@@ -90,6 +91,7 @@ export function instanceDto(i: Instance, myRole: InstanceRole): InstanceDto {
     updatedAt: i.updatedAt.toISOString(),
     myRole,
     address: primary ? `${address}:${primary.port}` : null,
+    players: players.playersOf(t.definition) ? { online: players.onlineCount(i.id) } : null,
   };
 }
 
@@ -367,6 +369,7 @@ export async function remove(id: number, keepFiles: boolean, actorId: number): P
       .map((r) => r.userId);
   await i.destroy();
   consoleHistory.clear(id);
+  players.forget(id);
   forgetUuid(i.uuid);
   ilog.info("instance deleted", { id, name: i.name, by: actorId, keepFiles });
   events.emit("instance.deleted", { instanceId: id, nodeId: node.id });
@@ -396,6 +399,7 @@ async function setStatus(i: Instance, status: InstanceStatus, error: string | nu
   i.status = status;
   i.error = error;
   await i.save();
+  players.onStatus(i.id, status);
   uiGateway.broadcast("instance.status", { instanceId: i.id, status, error });
 }
 

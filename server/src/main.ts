@@ -9,6 +9,7 @@ import { startHousekeeping } from "./jobs/housekeeping.ts";
 import { seedFromDisk } from "./modules/releases/service.ts";
 import { seedBuiltinTemplates } from "./modules/templates/seed.ts";
 import { startInstanceSupervisor } from "./modules/instances/supervisor.ts";
+import { loadOnlineCounts } from "./modules/players/service.ts";
 
 // Last-resort net: log instead of exiting, which would drop every agent and UI socket at once.
 globalThis.addEventListener("unhandledrejection", (e) => {
@@ -26,6 +27,7 @@ await seedFromDisk().catch((err) => log.warn("release seeding failed", { err }))
 await seedBuiltinTemplates().catch((err) => log.warn("template seeding failed", { err }));
 
 const app = createApp();
+await loadOnlineCounts();
 const stopDetector = startOfflineDetector();
 const stopHousekeeping = startHousekeeping();
 const stopSupervisor = startInstanceSupervisor();

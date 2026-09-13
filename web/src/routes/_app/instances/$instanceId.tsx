@@ -24,6 +24,12 @@ function InstanceLayout() {
   const i = q.data!;
   const tabs = [
     { to: "/instances/$instanceId", label: "Console", exact: true, show: true },
+    {
+      to: "/instances/$instanceId/players",
+      label: "Players",
+      show: !!i.players,
+      count: i.status === "running" ? i.players?.online : 0,
+    },
     { to: "/instances/$instanceId/files", label: "Files", show: roleAllows(i.myRole, "files") },
     {
       to: "/instances/$instanceId/backups",
@@ -89,6 +95,13 @@ function InstanceLayout() {
               )}
             >
               {t.label}
+              {t.count
+                ? (
+                  <span className="ml-1.5 rounded bg-status-online/15 px-1 text-[11px] text-status-online tabular-nums">
+                    {t.count}
+                  </span>
+                )
+                : null}
             </Link>
           ))}
         </nav>

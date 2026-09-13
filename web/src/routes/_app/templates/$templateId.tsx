@@ -6,6 +6,7 @@ import type {
   TemplateConfigFile,
   TemplateDefinition as TemplateDefinitionType,
   TemplateDetailDto,
+  TemplatePlayers,
   TemplatePort,
   TemplateVariable,
 } from "@gsm/shared";
@@ -39,7 +40,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { NEW_VARIABLE } from "@/lib/template-defaults";
+import { NEW_VARIABLE, STARTER_PLAYERS } from "@/lib/template-defaults";
 
 const CodeEditor = lazy(() => import("@/components/files/code-editor"));
 
@@ -174,6 +175,7 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
               <TabsTrigger value="variables">Variables ({def.variables.length})</TabsTrigger>
               <TabsTrigger value="ports">Ports ({def.ports.length})</TabsTrigger>
               <TabsTrigger value="files">Files ({def.files.length})</TabsTrigger>
+              <TabsTrigger value="players">Players</TabsTrigger>
               <TabsTrigger value="raw">Raw JSON</TabsTrigger>
             </TabsList>
 
@@ -500,6 +502,15 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
 
             <TabsContent value="files">
               <FilesEditor files={def.files} onChange={(files) => up({ files })} />
+            </TabsContent>
+
+            <TabsContent value="players">
+              <PlayersEditor
+                value={def.players ?? null}
+                templateId={t.id}
+                readOnly={readOnly}
+                onChange={(players) => up({ players })}
+              />
             </TabsContent>
 
             <TabsContent value="raw">
@@ -902,6 +913,80 @@ function FilesEditor(
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+/** The players section as JSON: too nested for a form, and rarely edited. */
+function PlayersEditor({ value, templateId, readOnly, onChange }: {
+  value: TemplatePlayers | null;
+  templateId: number;
+  readOnly: boolean;
+  onChange: (players: TemplatePlayers | null) => void;
+}) {
+  const [text, setText] = useState(() => JSON.stringify(value, null, 2));
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const replace = (next: TemplatePlayers | null) => {
+    setText(JSON.stringify(next, null, 2));
+    setVersion((v) => v + 1);
+    setError(null);
+    onChange(next);
+  };
+  const edit = (next: string) => {
+    setText(next);
+    try {
+      onChange(JSON.parse(next));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Invalid JSON");
+    }
+  };
+  return (
+    <div className="grid gap-3">
+      <Card>
+        <CardContent className="grid gap-3 pt-4 text-xs text-muted-foreground">
+          <p>
+            How the panel sees who is online and what it can do to a player. Console patterns are
+            JavaScript regular expressions tried on every console line: <code>join</code> and{" "}
+            <code>leave</code> need a <code>name</code> group, <code>identify</code> a{" "}
+            <code>name</code> and an <code>id</code>, and the list answer a <code>names</code>{" "}
+            group. Lists are files in the instance (<code>json</code> arrays or plain{" "}
+            <code>lines</code>). Actions are single console commands using{" "}
+            <code>{"{{PLAYER}}"}</code>, <code>{"{{PLAYER_ID}}"}</code> and their fields.
+          </p>
+          {!readOnly && (
+            <div>
+              {value === null
+                ? (
+                  <Button size="sm" variant="outline" onClick={() => replace(STARTER_PLAYERS)}>
+                    <Plus /> Add a players section
+                  </Button>
+                )
+                : (
+                  <Button size="sm" variant="outline" onClick={() => replace(null)}>
+                    <Trash2 /> Remove the players section
+                  </Button>
+                )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {error && <div className="text-xs text-status-critical">{error}</div>}
+      <div className="h-[60vh] overflow-hidden rounded-md border">
+        <Suspense
+          fallback={<div className="p-4 text-xs text-muted-foreground">Loading editor…</div>}
+        >
+          <CodeEditor
+            docKey={`tpl-players-${templateId}-${version}`}
+            value={text}
+            path="players.json"
+            readOnly={readOnly}
+            wrap={false}
+            onChange={edit}
+          />
+        </Suspense>
+      </div>
     </div>
   );
 }

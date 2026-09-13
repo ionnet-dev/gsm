@@ -15,6 +15,7 @@ import type {
 import { backupKeys } from "@/api/backups";
 import { instanceKeys, patchInstanceCaches } from "@/api/instances";
 import { nodeKeys } from "@/api/nodes";
+import { playerKeys } from "@/api/players";
 import { templateKeys } from "@/api/templates";
 
 type Listener<E extends UiEvent> = (data: UiEventData<E>) => void;
@@ -192,6 +193,16 @@ class UiSocket {
         case "instance.stats": {
           const d = data as UiEventData<"instance.stats">;
           patchInstanceCaches(qc, d.instanceId, (i) => ({ ...i, lastStats: d.stats }));
+          break;
+        }
+        case "instance.players": {
+          const d = data as UiEventData<"instance.players">;
+          patchInstanceCaches(
+            qc,
+            d.instanceId,
+            (i) => i.players ? { ...i, players: { online: d.online } } : i,
+          );
+          qc.invalidateQueries({ queryKey: playerKeys.list(d.instanceId) });
           break;
         }
         case "instance.console":

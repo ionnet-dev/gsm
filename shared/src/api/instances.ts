@@ -44,6 +44,8 @@ export interface InstanceDto {
   myRole: InstanceRole;
   /** `<publicAddress>:<primary port>` for players. */
   address: string | null;
+  /** Players online now; null when the template does not track players. */
+  players: { online: number } | null;
 }
 
 export interface InstanceDetailDto extends InstanceDto {
@@ -140,6 +142,8 @@ export const INSTANCE_PERMISSIONS = {
   files: ["owner", "operator"],
   backups: ["owner", "operator"],
   settings: ["owner", "operator"],
+  /** Player actions (kick, ban, …) and the game's player lists. */
+  players: ["owner", "operator"],
   access: ["owner"],
   delete: ["owner"],
   reinstall: ["owner"],

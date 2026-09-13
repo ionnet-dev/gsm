@@ -5,7 +5,15 @@
  * (templates/*.json); custom ones are made in the UI. The schema is what both store.
  */
 import { z } from "zod";
-import { CONFIG_FILE_FORMATS, PORT_PROTOCOLS, STOP_SIGNALS, VARIABLE_TYPES } from "../enums.ts";
+import {
+  CONFIG_FILE_FORMATS,
+  PLAYER_ACTION_ICONS,
+  PLAYER_FIELD_TYPES,
+  PLAYER_LIST_FORMATS,
+  PORT_PROTOCOLS,
+  STOP_SIGNALS,
+  VARIABLE_TYPES,
+} from "../enums.ts";
 
 export const VARIABLE_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 export const TEMPLATE_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -77,6 +85,159 @@ export const TemplateConfigFile = z.object({
 });
 export type TemplateConfigFile = z.infer<typeof TemplateConfigFile>;
 
+/** Ids of player lists and actions: `ops`, `whitelist-add`. */
+export const PLAYER_KEY_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+
+/** A regular expression (JavaScript syntax) that compiles and declares the named groups. */
+function regexString(groups: string[] = []) {
+  return z.string().min(1).max(500).refine(
+    (p) => {
+      try {
+        new RegExp(p);
+      } catch {
+        return false;
+      }
+      return groups.every((g) => p.includes(`(?<${g}>`));
+    },
+    groups.length
+      ? `Must be a valid regular expression with the named group${groups.length > 1 ? "s" : ""} ${
+        groups.join(", ")
+      }`
+      : "Must be a valid regular expression",
+  );
+}
+
+/**
+ * A list the game keeps in a file inside the instance (operators, bans, a whitelist). The panel
+ * reads it to show who is on it and to offer the actions that fit.
+ */
+export const TemplatePlayerList = z.object({
+  id: z.string().regex(PLAYER_KEY_RE),
+  /** Tab title: "Operators". */
+  label: z.string().min(1).max(60),
+  /** Shown next to a player who is on the list: "Operator". */
+  badge: z.string().max(30).default(""),
+  path: z.string().min(1).max(512),
+  /** `json`: an array of objects; `lines`: one name per line, `#` starts a comment. */
+  format: z.enum(PLAYER_LIST_FORMATS),
+  /** For `json`: the keys holding each entry's name and id. */
+  nameKey: z.string().min(1).max(60).default("name"),
+  idKey: z.string().min(1).max(60).nullable().default(null),
+  /** For `json`: more keys of each entry to show as columns. */
+  columns: z.array(z.object({ key: z.string().min(1).max(60), label: z.string().min(1).max(40) }))
+    .max(8).default([]),
+});
+export type TemplatePlayerList = z.infer<typeof TemplatePlayerList>;
+
+/** Something a player action asks for before it runs; its value fills `{{NAME}}`. */
+export const TemplatePlayerActionField = z.object({
+  name: z.string().regex(VARIABLE_NAME_RE),
+  label: z.string().min(1).max(80),
+  type: z.enum(PLAYER_FIELD_TYPES).default("text"),
+  required: z.boolean().default(false),
+  default: z.string().max(200).default(""),
+  placeholder: z.string().max(120).default(""),
+  /** For `select`. */
+  options: z.array(z.object({ value: z.string().max(200), label: z.string().max(80) })).default([]),
+  /** For `number`. */
+  min: z.number().nullable().default(null),
+  max: z.number().nullable().default(null),
+});
+export type TemplatePlayerActionField = z.infer<typeof TemplatePlayerActionField>;
+
+/**
+ * A console command run for one player. `{{PLAYER}}` is the player's name, `{{PLAYER_ID}}` their
+ * id (the name when unknown), and each field fills its own placeholder.
+ */
+export const TemplatePlayerAction = z.object({
+  id: z.string().regex(PLAYER_KEY_RE),
+  label: z.string().min(1).max(60),
+  /** Menu section: "Moderation". */
+  group: z.string().max(40).default(""),
+  icon: z.enum(PLAYER_ACTION_ICONS).default("command"),
+  command: z.string().min(1).max(500).regex(/^[^\n\r\0]+$/, "Must be a single line"),
+  fields: z.array(TemplatePlayerActionField).max(8).default([]),
+  /** Only offered for players who are online right now. */
+  online: z.boolean().default(false),
+  /** Only offered when the player is (`is: true`) or is not on one of the lists. */
+  when: z.object({ list: z.string().regex(PLAYER_KEY_RE), is: z.boolean() }).nullable().default(
+    null,
+  ),
+  /** Asks for confirmation and is shown in red. */
+  danger: z.boolean().default(false),
+});
+export type TemplatePlayerAction = z.infer<typeof TemplatePlayerAction>;
+
+/**
+ * How the panel knows who plays on an instance and what it can do to them. Who is online comes
+ * from console lines (and the answer to `list.command`); lists come from files; actions are
+ * console commands.
+ */
+export const TemplatePlayers = z.object({
+  /** Valid player names. Every name put into a command is checked against it first. */
+  namePattern: regexString().default("^[A-Za-z0-9_]{1,32}$"),
+  console: z.object({
+    /** A player joined: groups `name` and, optionally, `id`. */
+    join: regexString(["name"]).nullable().default(null),
+    /** A player left: group `name`. */
+    leave: regexString(["name"]).nullable().default(null),
+    /** A line naming a player's id, usually just before the join: groups `name` and `id`. */
+    identify: regexString(["name", "id"]).nullable().default(null),
+    /** Lines after which the lists are read again (a ban, a new operator, …). */
+    refresh: regexString().nullable().default(null),
+  }).default({ join: null, leave: null, identify: null, refresh: null }),
+  /** A command that prints who is online, and how to read its answer. */
+  list: z.object({
+    command: z.string().min(1).max(200).regex(/^[^\n\r\0]+$/, "Must be a single line"),
+    /** Matches the answer; group `names` holds the entries. */
+    pattern: regexString(["names"]),
+    separator: z.string().min(1).max(10).default(","),
+    /** Matches one entry: groups `name` and, optionally, `id`. Without it an entry is a name. */
+    entry: regexString(["name"]).nullable().default(null),
+  }).nullable().default(null),
+  lists: z.array(TemplatePlayerList).max(8).default([]),
+  actions: z.array(TemplatePlayerAction).max(40).default([]),
+}).superRefine((p, ctx) => {
+  const lists = new Set(p.lists.map((l) => l.id));
+  if (lists.size !== p.lists.length) {
+    ctx.addIssue({ code: "custom", path: ["lists"], message: "List ids must be unique" });
+  }
+  const ids = new Set<string>();
+  p.actions.forEach((a, i) => {
+    if (ids.has(a.id)) {
+      ctx.addIssue({ code: "custom", path: ["actions", i, "id"], message: "Duplicate action id" });
+    }
+    ids.add(a.id);
+    if (a.when && !lists.has(a.when.list)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["actions", i, "when", "list"],
+        message: `No list called ${a.when.list}`,
+      });
+    }
+    const known = new Set(["PLAYER", "PLAYER_ID", ...a.fields.map((f) => f.name)]);
+    a.fields.forEach((f, j) => {
+      if (f.name === "PLAYER" || f.name === "PLAYER_ID") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["actions", i, "fields", j, "name"],
+          message: `${f.name} is filled in by the panel`,
+        });
+      }
+    });
+    for (const m of a.command.matchAll(/\{\{\s*([A-Z][A-Z0-9_]*)\s*\}\}/g)) {
+      if (!known.has(m[1])) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["actions", i, "command"],
+          message: `{{${m[1]}}} is neither PLAYER, PLAYER_ID nor one of the fields`,
+        });
+      }
+    }
+  });
+});
+export type TemplatePlayers = z.infer<typeof TemplatePlayers>;
+
 export const TemplateDefinition = z.object({
   schemaVersion: z.literal(1),
   slug: z.string().regex(TEMPLATE_SLUG_RE),
@@ -119,6 +280,8 @@ export const TemplateDefinition = z.object({
   restartOnCrash: z.boolean().default(true),
   /** Paths (globs) left out of backups by default. */
   backupIgnore: z.array(z.string().max(200)).max(100).default([]),
+  /** Player tracking and actions; null when the game has none the panel understands. */
+  players: TemplatePlayers.nullable().default(null),
 });
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>;
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>;
