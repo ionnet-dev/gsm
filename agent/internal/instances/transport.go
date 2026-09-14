@@ -50,6 +50,9 @@ type transport struct {
 	address func(ctx context.Context) (string, error)
 	emit    func(text string) // an answer from the game
 	note    func(text string) // a [GSM] line about the connection
+	// write hands a command to the game directly (fifo): there is no session to keep then, and
+	// the answers arrive on stdout.
+	write func(cmd string) error
 
 	mu     sync.Mutex
 	conn   net.Conn
@@ -69,6 +72,10 @@ func newTransport(spec protocol.ConsoleTransport, address func(context.Context) 
 // run keeps a session open until ctx ends (the container exited), reconnecting as needed. Until
 // the game opens its console port, dials fail quietly.
 func (t *transport) run(ctx context.Context) {
+	if t.write != nil {
+		<-ctx.Done()
+		return
+	}
 	for ctx.Err() == nil {
 		established, err := t.session(ctx)
 		t.setConn(nil)
@@ -94,6 +101,9 @@ func (t *transport) run(ctx context.Context) {
 // Send writes one command.
 func (t *transport) Send(cmd string) error {
 	cmd = strings.TrimRight(cmd, "\r\n")
+	if t.write != nil {
+		return t.write(cmd)
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.conn == nil {

@@ -32,6 +32,7 @@ root under systemd, talks to the Docker socket, and keeps instance data under `/
 /var/lib/gsm/logs/<uuid>        console.log and install.log
 /var/lib/gsm/backups/<uuid>     <backupId>.tar.gz
 /var/lib/gsm/state/<uuid>.json  the last spec the agent saw, for graceful stops after a restart
+/var/lib/gsm/databases/<uuid>   the instance's database (MariaDB files), for templates with one
 ```
 
 Enroll with the one-liner from Settings → Enrollment:
@@ -59,7 +60,17 @@ groups, routers) still have to be opened there.
 
 The instance images come from `ghcr.io/ionnet-dev` (Settings → General → Image registry). Nodes pull
 them on first use; for a private registry, enter credentials under Settings → General → Registry,
-which every agent receives.
+which every agent receives. Templates with a database also pull `mariadb` from Docker Hub.
+
+Host mounts (a node directory inside one instance, which admins add on the instance's Settings tab)
+are refused until the agent's config says where they may come from. List the directories, then
+`systemctl restart gsm-agent`:
+
+```yaml
+# /etc/gsm-agent/config.yaml
+host_mounts:
+  - /srv/gsm
+```
 
 ## Reverse proxy
 

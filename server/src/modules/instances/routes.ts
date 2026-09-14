@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   CommandBody,
   CreateInstanceBody,
+  DatabaseDumpBody,
+  DatabaseImportBody,
   GrantAccessBody,
   ListInstancesQuery,
   Pagination,
@@ -10,6 +12,7 @@ import {
   UpdateInstanceBody,
 } from "@gsm/shared";
 import type { AppEnv } from "../../app.ts";
+import { forbidden } from "../../lib/errors.ts";
 import { idParam, parseBody, parseQuery } from "../../lib/http.ts";
 import { auditFrom } from "../audit/service.ts";
 import { currentUser, requireAuth } from "../auth/middleware.ts";
@@ -69,6 +72,10 @@ instanceRoutes.patch("/:id", async (c) => {
   const id = idParam(c);
   const role = await assertInstancePermission(c, id, "settings");
   const body = await parseBody(c, UpdateInstanceBody);
+  // A node directory in a container reaches past the instance: only admins decide that.
+  if (body.mounts !== undefined && currentUser(c).role !== "admin") {
+    throw forbidden("Only admins may mount node directories");
+  }
   const i = await instances.update(id, body, role);
   const { variables: _v, ...rest } = body;
   await auditFrom(c, "instance.update", { type: "instance", id }, {
@@ -127,6 +134,30 @@ instanceRoutes.get("/:id/console", async (c) => {
   await assertInstancePermission(c, id, "console");
   const q = parseQuery(c, ConsoleQuery);
   return c.json({ lines: await instances.consoleTail(id, q.stream, q.lines) });
+});
+
+instanceRoutes.get("/:id/database", async (c) => {
+  const id = idParam(c);
+  await assertInstancePermission(c, id, "settings");
+  return c.json({ database: await instances.database(id) });
+});
+
+instanceRoutes.post("/:id/database/dump", async (c) => {
+  const id = idParam(c);
+  await assertInstancePermission(c, id, "backups");
+  const body = await parseBody(c, DatabaseDumpBody);
+  const res = await instances.dumpDatabase(id, body.path);
+  await auditFrom(c, "instance.database_dump", { type: "instance", id }, res);
+  return c.json(res);
+});
+
+instanceRoutes.post("/:id/database/import", async (c) => {
+  const id = idParam(c);
+  await assertInstancePermission(c, id, "backups");
+  const body = await parseBody(c, DatabaseImportBody);
+  await instances.importDatabase(id, body.path);
+  await auditFrom(c, "instance.database_import", { type: "instance", id }, body);
+  return c.json({ ok: true });
 });
 
 instanceRoutes.get("/:id/stats", async (c) => {

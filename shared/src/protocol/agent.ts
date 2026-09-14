@@ -50,6 +50,11 @@ export const Inventory = z.object({
   docker: DockerInfo,
   /** Where instance data lives on the node (the agent's data_dir). */
   dataDir: z.string(),
+  /**
+   * Directories under which the agent's config (`host_mounts`) lets instances mount node paths;
+   * empty means none may.
+   */
+  hostMountRoots: z.array(z.string()).default([]),
 });
 export type Inventory = z.infer<typeof Inventory>;
 

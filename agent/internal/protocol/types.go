@@ -51,6 +51,8 @@ type Inventory struct {
 	BootTime         time.Time  `json:"bootTime"`
 	Docker           DockerInfo `json:"docker"`
 	DataDir          string     `json:"dataDir"`
+	// HostMountRoots are the node directories instances may mount (host_mounts in the config).
+	HostMountRoots []string `json:"hostMountRoots"`
 }
 
 type Hello struct {
@@ -238,7 +240,7 @@ type ResourceLimits struct {
 
 type ConfigFileSpec struct {
 	Path   string            `json:"path"`
-	Format string            `json:"format"` // properties | json | ini | yaml | xml-properties
+	Format string            `json:"format"` // properties | json | ini | yaml | xml-properties | source-cfg
 	Values map[string]string `json:"values"`
 }
 
@@ -255,8 +257,9 @@ type ConsoleSpec struct {
 
 // ConsoleTransport is where console commands go for a game that does not read stdin.
 type ConsoleTransport struct {
-	Kind     string  `json:"kind"` // telnet | rcon
-	Port     int     `json:"port"` // inside the container; dialled on the container's address
+	Kind     string  `json:"kind"` // telnet | rcon | fifo
+	Port     int     `json:"port"` // telnet, rcon: inside the container; dialled on the container's address
+	Path     string  `json:"path"` // fifo: the named pipe in the container commands are written to
 	Password string  `json:"password"`
 	Ignore   *string `json:"ignore"` // answers matching it are not shown (stdout had them)
 }
@@ -265,6 +268,38 @@ type UserSpec struct {
 	UID int `json:"uid"`
 	GID int `json:"gid"`
 }
+
+// VolumeSpec is a folder of the instance (volumes/<name> in its data directory) mounted at Path.
+type VolumeSpec struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Seed bool   `json:"seed"` // a new one is filled with what the image has at Path
+}
+
+// HostMountSpec is a node directory mounted into the container; it must lie under one of the
+// roots in the agent's config (host_mounts).
+type HostMountSpec struct {
+	HostPath      string `json:"hostPath"`
+	ContainerPath string `json:"containerPath"`
+	ReadOnly      bool   `json:"readOnly"`
+}
+
+// DatabaseSpec is the database server run beside an instance.
+type DatabaseSpec struct {
+	Engine       string `json:"engine"` // mariadb
+	Image        string `json:"image"`
+	Name         string `json:"name"`
+	User         string `json:"user"`
+	Password     string `json:"password"`
+	RootPassword string `json:"rootPassword"`
+	MemoryMb     int    `json:"memoryMb"`
+}
+
+// Image pull policies.
+const (
+	PullMissing = "missing"
+	PullAlways  = "always"
+)
 
 type InstanceSpec struct {
 	UUID           string            `json:"uuid"`
@@ -280,6 +315,13 @@ type InstanceSpec struct {
 	Files          []ConfigFileSpec  `json:"files"`
 	RestartOnCrash bool              `json:"restartOnCrash"`
 	User           UserSpec          `json:"user"`
+	// Entrypoint replaces the image's when non-nil (JSON null keeps it); empty means none.
+	Entrypoint        []string        `json:"entrypoint"`
+	Volumes           []VolumeSpec    `json:"volumes"`
+	Mounts            []HostMountSpec `json:"mounts"`
+	Pull              string          `json:"pull"` // missing | always
+	SeccompUnconfined bool            `json:"seccompUnconfined"`
+	Database          *DatabaseSpec   `json:"database"`
 }
 
 type InstallSpec struct {
@@ -383,6 +425,18 @@ type InstStatsParams struct {
 
 type InstStatsResult struct {
 	Stats []InstanceStats `json:"stats"`
+}
+
+// DBParams are db.dump's and db.import's params; Path is relative to the instance's data directory.
+type DBParams struct {
+	UUID     string       `json:"uuid"`
+	Database DatabaseSpec `json:"database"`
+	Path     string       `json:"path"`
+}
+
+type DBDumpResult struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
 }
 
 // Events agent -> server.
@@ -542,6 +596,8 @@ type BackupCreateParams struct {
 	UUID     string   `json:"uuid"`
 	BackupID string   `json:"backupId"`
 	Ignore   []string `json:"ignore"`
+	// Database, when set, is dumped into the archive as .gsm/database.sql.gz.
+	Database *DatabaseSpec `json:"database"`
 }
 
 type BackupCreateResult struct {
@@ -554,6 +610,8 @@ type BackupRestoreParams struct {
 	UUID     string `json:"uuid"`
 	BackupID string `json:"backupId"`
 	Wipe     bool   `json:"wipe"`
+	// Database, when set, gets the archive's dump (if it has one) imported.
+	Database *DatabaseSpec `json:"database"`
 }
 
 type BackupRestoreResult struct {

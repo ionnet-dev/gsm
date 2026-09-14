@@ -33,6 +33,9 @@ type Config struct {
 	LogLevel string `yaml:"log_level"`
 	// InsecureSkipVerify disables TLS certificate verification. Development only.
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+	// HostMounts lists the node directories (with everything under them) that admins may mount
+	// into instances. Empty: none. The panel alone can never expose the rest of the node.
+	HostMounts []string `yaml:"host_mounts,omitempty"`
 }
 
 func Default() Config {
@@ -75,6 +78,15 @@ func Load(path string) (Config, error) {
 	if cfg.MetricsInterval < 5*time.Second {
 		cfg.MetricsInterval = 5 * time.Second
 	}
+	roots := cfg.HostMounts[:0]
+	for _, r := range cfg.HostMounts {
+		r = filepath.Clean(strings.TrimSpace(r))
+		// The whole node is never a mount root, and a relative path means nothing here.
+		if filepath.IsAbs(r) && r != "/" {
+			roots = append(roots, r)
+		}
+	}
+	cfg.HostMounts = roots
 	return cfg, nil
 }
 
@@ -130,10 +142,11 @@ func (c Config) InstancesDir() string { return filepath.Join(c.DataDir, "instanc
 func (c Config) LogsDir() string      { return filepath.Join(c.DataDir, "logs") }
 func (c Config) BackupsDir() string   { return filepath.Join(c.DataDir, "backups") }
 func (c Config) StateDir() string     { return filepath.Join(c.DataDir, "state") }
+func (c Config) DatabasesDir() string { return filepath.Join(c.DataDir, "databases") }
 
 // EnsureDataDir creates the data directory layout.
 func (c Config) EnsureDataDir() error {
-	for _, d := range []string{c.InstancesDir(), c.LogsDir(), c.BackupsDir(), c.StateDir()} {
+	for _, d := range []string{c.InstancesDir(), c.LogsDir(), c.BackupsDir(), c.StateDir(), c.DatabasesDir()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}

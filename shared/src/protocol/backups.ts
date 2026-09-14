@@ -4,7 +4,7 @@
  * travels to the browser through the same transfer relay as file downloads.
  */
 import { z } from "zod";
-import { InstanceUuid } from "./instances.ts";
+import { DatabaseSpec, InstanceUuid } from "./instances.ts";
 
 export const BackupId = z.string().uuid();
 
@@ -14,12 +14,16 @@ export const BackupProgress = z.object({
 });
 
 export const backupMethods = {
-  /** Archive the data directory, leaving out paths that match `ignore` (gitignore-style globs). */
+  /**
+   * Archive the data directory, leaving out paths that match `ignore` (gitignore-style globs).
+   * With `database`, a dump of it goes into the archive as .gsm/database.sql.gz.
+   */
   "backup.create": {
     params: z.object({
       uuid: InstanceUuid,
       backupId: BackupId,
       ignore: z.array(z.string().max(200)).max(200),
+      database: DatabaseSpec.nullable().default(null),
     }),
     result: z.object({
       size: z.number().int().nonnegative(),
@@ -30,10 +34,15 @@ export const backupMethods = {
   },
   /**
    * Unpack the archive over the data directory (with `wipe`, empty it first). Refused while the
-   * instance runs.
+   * instance runs. With `database`, a dump in the archive replaces the database's contents.
    */
   "backup.restore": {
-    params: z.object({ uuid: InstanceUuid, backupId: BackupId, wipe: z.boolean() }),
+    params: z.object({
+      uuid: InstanceUuid,
+      backupId: BackupId,
+      wipe: z.boolean(),
+      database: DatabaseSpec.nullable().default(null),
+    }),
     result: z.object({ files: z.number().int().nonnegative() }),
     stream: BackupProgress,
   },

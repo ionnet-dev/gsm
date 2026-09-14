@@ -1,18 +1,24 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, Copy, Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { type ComponentProps, lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type {
   TemplateConfigFile,
+  TemplateContainer,
+  TemplateDatabase,
   TemplateDefinition as TemplateDefinitionType,
   TemplateDetailDto,
   TemplatePlayers,
   TemplatePort,
   TemplateVariable,
+  TemplateVolume,
 } from "@gsm/shared";
 import {
   BUILTIN_VARIABLES,
   CONFIG_FILE_FORMATS,
+  containerPathProblem,
+  DATABASE_ENGINES,
+  IMAGE_PULL_POLICIES,
   INSTALL_RESOLVERS,
   PORT_PROTOCOLS,
   STOP_SIGNALS,
@@ -40,7 +46,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { NEW_VARIABLE, STARTER_PLAYERS } from "@/lib/template-defaults";
+import {
+  DEFAULT_CONTAINER,
+  NEW_VARIABLE,
+  STARTER_DATABASE,
+  STARTER_PLAYERS,
+} from "@/lib/template-defaults";
 
 const CodeEditor = lazy(() => import("@/components/files/code-editor"));
 
@@ -174,6 +185,8 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
             <TabsTrigger value="variables">Variables ({def.variables.length})</TabsTrigger>
             <TabsTrigger value="ports">Ports ({def.ports.length})</TabsTrigger>
             <TabsTrigger value="files">Files ({def.files.length})</TabsTrigger>
+            <TabsTrigger value="volumes">Volumes ({(def.volumes ?? []).length})</TabsTrigger>
+            <TabsTrigger value="database">Database</TabsTrigger>
             <TabsTrigger value="players">Players</TabsTrigger>
             <TabsTrigger value="raw">Raw JSON</TabsTrigger>
           </TabsList>
@@ -410,6 +423,11 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
                     </CardContent>
                   </Card>
                 </div>
+                <ContainerCard
+                  value={def.container ?? DEFAULT_CONTAINER}
+                  onChange={(container) => up({ container })}
+                />
+                <EnvCard value={def.env ?? {}} onChange={(env) => up({ env })} />
               </div>
             </TabsContent>
 
@@ -503,6 +521,19 @@ function TemplateEditor({ template: t }: { template: TemplateDetailDto }) {
 
             <TabsContent value="files">
               <FilesEditor files={def.files} onChange={(files) => up({ files })} />
+            </TabsContent>
+
+            <TabsContent value="volumes">
+              <VolumesEditor volumes={def.volumes ?? []} onChange={(volumes) => up({ volumes })} />
+            </TabsContent>
+
+            <TabsContent value="database">
+              <DatabaseEditor
+                value={def.database ?? null}
+                variables={def.variables}
+                readOnly={readOnly}
+                onChange={(database) => up({ database })}
+              />
             </TabsContent>
 
             <TabsContent value="players">
@@ -1024,6 +1055,378 @@ function PlayersEditor({ value, templateId, readOnly, onChange }: {
           />
         </Suspense>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A textarea for a value kept as lines. The text stays as typed, so a new, still empty line
+ * survives; it is replaced only when the value changes from outside (a reload, the raw JSON tab).
+ */
+function LinesTextarea<T>({ value, parse, format, onChange, ...props }: {
+  value: T;
+  parse: (text: string) => T;
+  format: (value: T) => string;
+  onChange: (value: T) => void;
+} & Omit<ComponentProps<typeof Textarea>, "value" | "onChange">) {
+  const [text, setText] = useState(() => format(value));
+  useEffect(() => {
+    if (JSON.stringify(parse(text)) !== JSON.stringify(value)) setText(format(value));
+  }, [value]);
+  return (
+    <Textarea
+      {...props}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(parse(e.target.value));
+      }}
+    />
+  );
+}
+
+const PULL_LABEL: Record<TemplateContainer["pull"], string> = {
+  missing: "When it is missing",
+  always: "Before every start and install",
+};
+
+/** How the container runs, for images not built on the base image. */
+function ContainerCard(
+  { value, onChange }: { value: TemplateContainer; onChange: (c: TemplateContainer) => void },
+) {
+  const set = (patch: Partial<TemplateContainer>) => onChange({ ...value, ...patch });
+  const entrypoint = value.entrypoint;
+  const user = value.user;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Container</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <p className="text-xs text-muted-foreground">
+          For images not built on the base image. The defaults suit the base image: its entrypoint,
+          the gsm user (1500), and pulling only when the image is missing.
+        </p>
+        <label className="flex items-center gap-2 text-xs">
+          <Switch
+            checked={entrypoint === null}
+            onCheckedChange={(c) => set({ entrypoint: c ? null : [] })}
+          />
+          Keep the image's entrypoint
+        </label>
+        {entrypoint !== null && (
+          <Field
+            label="Entrypoint"
+            hint='One argument per line; sh -c "<startup>" follows it. Empty runs the startup command without one.'
+          >
+            <LinesTextarea
+              value={entrypoint}
+              parse={(t) => t.split("\n").map((l) => l.trim()).filter(Boolean)}
+              format={(v) => v.join("\n")}
+              onChange={(next) => set({ entrypoint: next })}
+              rows={3}
+              className="font-mono text-xs"
+              spellCheck={false}
+            />
+          </Field>
+        )}
+        <label className="flex items-center gap-2 text-xs">
+          <Switch
+            checked={user !== null}
+            onCheckedChange={(c) => set({ user: c ? { uid: 1000, gid: 1000 } : null })}
+          />
+          Run as another user than gsm (1500)
+        </label>
+        {user !== null && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="User id" htmlFor="tuid" hint="Also owns the instance's files">
+              <Input
+                id="tuid"
+                type="number"
+                min={1}
+                value={user.uid}
+                onChange={(e) => set({ user: { ...user, uid: Number(e.target.value) } })}
+              />
+            </Field>
+            <Field label="Group id" htmlFor="tgid">
+              <Input
+                id="tgid"
+                type="number"
+                min={1}
+                value={user.gid}
+                onChange={(e) => set({ user: { ...user, gid: Number(e.target.value) } })}
+              />
+            </Field>
+          </div>
+        )}
+        <Field label="Pull the image">
+          <Select
+            value={value.pull}
+            onValueChange={(v) => set({ pull: v as TemplateContainer["pull"] })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {IMAGE_PULL_POLICIES.map((p) => (
+                <SelectItem key={p} value={p}>{PULL_LABEL[p]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <div className="grid gap-1">
+          <label className="flex items-center gap-2 text-xs">
+            <Switch
+              checked={value.seccompUnconfined}
+              onCheckedChange={(c) => set({ seccompUnconfined: c })}
+            />
+            Turn off the seccomp filter
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Admins only. It loosens the container's isolation; use it only for a game that fails
+            without it.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EnvCard(
+  { value, onChange }: {
+    value: Record<string, string>;
+    onChange: (env: Record<string, string>) => void;
+  },
+) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Environment</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <Field
+          label="Extra variables"
+          hint="One per line: NAME = value, with {{VAR}} placeholders, for images that read their own names (DB_HOST = {{GSM_DB_HOST}}). GSM_* names are the platform's."
+        >
+          <LinesTextarea
+            value={value}
+            parse={(t): Record<string, string> =>
+              Object.fromEntries(
+                t.split("\n").filter((l) => l.includes("=")).map((l) => {
+                  const [k, ...rest] = l.split("=");
+                  return [k.trim(), rest.join("=").trim()];
+                }),
+              )}
+            format={(v) => Object.entries(v).map(([k, x]) => `${k} = ${x}`).join("\n")}
+            onChange={onChange}
+            rows={6}
+            className="font-mono text-xs"
+            spellCheck={false}
+          />
+        </Field>
+      </CardContent>
+    </Card>
+  );
+}
+
+function VolumesEditor(
+  { volumes, onChange }: { volumes: TemplateVolume[]; onChange: (v: TemplateVolume[]) => void },
+) {
+  const set = (i: number, patch: Partial<TemplateVolume>) =>
+    onChange(volumes.map((v, k) => (k === i ? { ...v, ...patch } : v)));
+  return (
+    <div className="grid gap-3">
+      <ListHeader
+        title="Volumes"
+        onAdd={() =>
+          onChange([...volumes, {
+            name: `data${volumes.length + 1}`,
+            label: "Volume",
+            description: "",
+            path: `/opt/data${volumes.length + 1}`,
+            seed: false,
+            backup: true,
+          }])}
+      />
+      <p className="text-xs text-muted-foreground">
+        Folders of the instance mounted somewhere other than /data, for images that keep their
+        server elsewhere. Each is kept in the instance's files as volumes/&lt;name&gt;, so the file
+        manager, SFTP and backups see it, and it outlives image updates and reinstalls.
+      </p>
+      {volumes.length === 0 && (
+        <p className="text-xs text-muted-foreground">No volumes; everything lives in /data.</p>
+      )}
+      {volumes.map((v, i) => (
+        <Card key={i}>
+          <CardContent className="grid gap-3 pt-4">
+            <div className="grid gap-3 sm:grid-cols-[12rem_1fr_1fr_auto]">
+              <Field label="Name" hint={`volumes/${v.name} in the files`}>
+                <Input
+                  value={v.name}
+                  onChange={(e) => set(i, { name: e.target.value.toLowerCase() })}
+                  className="font-mono"
+                />
+              </Field>
+              <Field label="Label">
+                <Input value={v.label} onChange={(e) => set(i, { label: e.target.value })} />
+              </Field>
+              <Field
+                label="Path in the container"
+                hint="Absolute, outside /data"
+                error={containerPathProblem(v.path)}
+              >
+                <Input
+                  value={v.path}
+                  onChange={(e) => set(i, { path: e.target.value.trim() })}
+                  className="font-mono"
+                />
+              </Field>
+              <div className="self-end">
+                <RowTools
+                  index={i}
+                  count={volumes.length}
+                  onMove={(d) => onChange(move(volumes, i, d))}
+                  onRemove={() => onChange(volumes.filter((_, k) => k !== i))}
+                />
+              </div>
+            </div>
+            <Field label="Description">
+              <Input
+                value={v.description}
+                onChange={(e) => set(i, { description: e.target.value })}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-4 text-xs">
+              <label className="flex items-center gap-2">
+                <Switch checked={v.seed} onCheckedChange={(c) => set(i, { seed: c })} />
+                Fill it from the image while the folder does not exist
+              </label>
+              <label className="flex items-center gap-2">
+                <Switch checked={v.backup} onCheckedChange={(c) => set(i, { backup: c })} />
+                Include in backups
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/** A database server beside each instance. */
+function DatabaseEditor({ value, variables, readOnly, onChange }: {
+  value: TemplateDatabase | null;
+  variables: TemplateVariable[];
+  readOnly: boolean;
+  onChange: (db: TemplateDatabase | null) => void;
+}) {
+  const switches = variables.filter((v) => v.type === "boolean");
+  return (
+    <div className="grid gap-3">
+      <Card>
+        <CardContent className="grid gap-3 pt-4 text-xs text-muted-foreground">
+          <p>
+            A database server beside each instance, in its own container on a private network only
+            the two share. It starts before the game and stops after it, and backups carry a dump of
+            it. The game finds it through <code>GSM_DB_HOST</code>, <code>GSM_DB_PORT</code>,{" "}
+            <code>GSM_DB_NAME</code>, <code>GSM_DB_USER</code> and{" "}
+            <code>GSM_DB_PASSWORD</code>; pass them on under an image's own names with Environment
+            on the Runtime tab.
+          </p>
+          {readOnly && value === null && <p>This template has no database.</p>}
+          {!readOnly && (
+            <div>
+              {value === null
+                ? (
+                  <Button size="sm" variant="outline" onClick={() => onChange(STARTER_DATABASE)}>
+                    <Plus /> Add a database
+                  </Button>
+                )
+                : (
+                  <Button size="sm" variant="outline" onClick={() => onChange(null)}>
+                    <Trash2 /> Remove the database
+                  </Button>
+                )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {value && (
+        <Card>
+          <CardContent className="grid gap-3 pt-4 sm:grid-cols-2">
+            <Field label="Engine">
+              <Select
+                value={value.engine}
+                onValueChange={(v) =>
+                  onChange({ ...value, engine: v as TemplateDatabase["engine"] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DATABASE_ENGINES.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Image" htmlFor="tdbimg" hint="An image of the engine, like mariadb:11.4">
+              <Input
+                id="tdbimg"
+                value={value.image}
+                onChange={(e) => onChange({ ...value, image: e.target.value })}
+                className="font-mono"
+              />
+            </Field>
+            <Field
+              label="Database name"
+              htmlFor="tdbname"
+              hint="Also the user's name: lowercase letters, digits and _"
+            >
+              <Input
+                id="tdbname"
+                value={value.name}
+                onChange={(e) => onChange({ ...value, name: e.target.value.toLowerCase() })}
+                className="font-mono"
+              />
+            </Field>
+            <Field
+              label="Memory (MB)"
+              htmlFor="tdbmem"
+              hint="The database's own limit; 0 = unlimited"
+            >
+              <Input
+                id="tdbmem"
+                type="number"
+                min={0}
+                value={value.memoryMb}
+                onChange={(e) => onChange({ ...value, memoryMb: Number(e.target.value) })}
+              />
+            </Field>
+            <Field
+              label="Turned on by"
+              hint="Always on, or only for instances where a boolean variable is true"
+              className="sm:col-span-2"
+            >
+              <Select
+                value={value.enabledBy ?? "always"}
+                onValueChange={(v) => onChange({ ...value, enabledBy: v === "always" ? null : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="always">Always on</SelectItem>
+                  {switches.map((v) => (
+                    <SelectItem key={v.name} value={v.name}>{v.label} ({v.name})</SelectItem>
+                  ))}
+                  {value.enabledBy && !switches.some((v) => v.name === value.enabledBy) && (
+                    <SelectItem value={value.enabledBy}>{value.enabledBy}</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </Field>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

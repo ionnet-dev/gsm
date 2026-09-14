@@ -8,6 +8,8 @@ import { z } from "zod";
 import {
   CONFIG_FILE_FORMATS,
   CONSOLE_TRANSPORTS,
+  DATABASE_ENGINES,
+  IMAGE_PULL_POLICIES,
   PLAYER_ACTION_ICONS,
   PLAYER_FIELD_TYPES,
   PLAYER_LIST_FORMATS,
@@ -18,6 +20,65 @@ import {
 
 export const VARIABLE_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 export const TEMPLATE_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+/** A template volume's name, also its folder in the instance's files: volumes/<name>. */
+export const VOLUME_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+/** Environment variable names a template may set. */
+export const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+/** A database (and its user) name. */
+export const DATABASE_NAME_RE = /^[a-z][a-z0-9_]{0,31}$/;
+
+/** Directories a volume or mount may not sit in: the kernel's, the instance files', the agent's. */
+const RESERVED_CONTAINER_TREES = ["/proc", "/sys", "/dev", "/data", "/gsm"];
+/** Directories a volume or mount may not replace outright; the image cannot work without them. */
+const RESERVED_CONTAINER_DIRS = [
+  "/",
+  "/bin",
+  "/boot",
+  "/etc",
+  "/lib",
+  "/lib32",
+  "/lib64",
+  "/run",
+  "/sbin",
+  "/usr",
+  "/var",
+];
+
+/** Clean absolute path: no empty, `.` or `..` segments, no trailing slash, no `:` or `,`. */
+function absolutePathProblem(path: string): string | null {
+  if (!path.startsWith("/")) return "Must be an absolute path";
+  if (path !== "/" && path.endsWith("/")) return "Must not end with a slash";
+  if (!/^\/[A-Za-z0-9._@+\-/]*$/.test(path)) {
+    return "Letters, digits, / and . _ - @ + only";
+  }
+  if (path.split("/").slice(1).some((s) => s === "." || s === ".." || (s === "" && path !== "/"))) {
+    return "Must not contain empty, . or .. parts";
+  }
+  return null;
+}
+
+/** Why `path` cannot be a mount point inside an instance's container, or null when it can. */
+export function containerPathProblem(path: string): string | null {
+  const problem = absolutePathProblem(path);
+  if (problem) return problem;
+  if (RESERVED_CONTAINER_DIRS.includes(path)) return `${path} cannot be replaced`;
+  const tree = RESERVED_CONTAINER_TREES.find((r) => path === r || path.startsWith(r + "/"));
+  if (tree) return `${tree} is reserved`;
+  return null;
+}
+
+/** Why `path` cannot be mounted from a node, or null when it can (the node's agent has the last word). */
+export function hostPathProblem(path: string): string | null {
+  const problem = absolutePathProblem(path);
+  if (problem) return problem;
+  if (path === "/") return "Cannot mount the whole node";
+  return null;
+}
+
+const ContainerPath = z.string().min(2).max(300).superRefine((p, ctx) => {
+  const problem = containerPathProblem(p);
+  if (problem) ctx.addIssue({ code: "custom", message: problem });
+});
 
 /**
  * Version sources the server can list and resolve. `minecraft:vanilla` lists Mojang's manifest;
@@ -30,6 +91,7 @@ export const VERSION_SOURCES = [
   "minecraft:forge",
   "minecraft:neoforge",
   "steam:294420",
+  "steam:4020",
 ] as const;
 export type VersionSource = (typeof VERSION_SOURCES)[number];
 
@@ -98,6 +160,71 @@ export const TemplateConfigFile = z.object({
   values: z.record(z.string().min(1).max(200), z.string().max(2000)),
 });
 export type TemplateConfigFile = z.infer<typeof TemplateConfigFile>;
+
+/**
+ * A directory of the instance mounted somewhere other than /data, for images that keep their
+ * server outside /data (a prebuilt image with the game in it). It is kept in the instance's files
+ * as volumes/<name>, so the file manager, SFTP and backups see it, and it outlives the container,
+ * image updates and reinstalls like everything else there.
+ */
+export const TemplateVolume = z.object({
+  name: z.string().regex(VOLUME_NAME_RE),
+  label: z.string().min(1).max(80),
+  description: z.string().max(300).default(""),
+  /** Where it appears inside the container: an absolute path outside /data. */
+  path: ContainerPath,
+  /**
+   * Fill it with what the image has at `path` when the folder does not exist yet (stock maps,
+   * default configs). Deleting the folder fills it again on the next start.
+   */
+  seed: z.boolean().default(false),
+  /** Include it in backups; off for caches and downloads that come back by themselves. */
+  backup: z.boolean().default(true),
+});
+export type TemplateVolume = z.infer<typeof TemplateVolume>;
+
+/**
+ * How the container runs, for images not built on the platform's base image. The defaults suit the
+ * base image: its entrypoint, the gsm user (1500), Docker's seccomp filter, pull when missing.
+ */
+export const TemplateContainer = z.object({
+  /**
+   * Replaces the image's entrypoint; `sh -c "<startup>"` follows it. An empty list runs the
+   * startup command with no entrypoint (Docker's init is PID 1 then). Null keeps the image's.
+   */
+  entrypoint: z.array(z.string().min(1).max(500)).max(16).nullable().default(null),
+  /** Run as this uid:gid, and own the instance's files as it, for images built around a user. */
+  user: z.object({
+    uid: z.number().int().min(1).max(2_147_483_647),
+    gid: z.number().int().min(1).max(2_147_483_647),
+  }).nullable().default(null),
+  /** `always` pulls before every start and install (images under a moving tag such as latest). */
+  pull: z.enum(IMAGE_PULL_POLICIES).default("missing"),
+  /**
+   * Turn Docker's seccomp filter off for the container. Some Docker hosts refuse a socket call that
+   * 32-bit Source servers make. Only built-in templates and admins may set it.
+   */
+  seccompUnconfined: z.boolean().default(false),
+});
+export type TemplateContainer = z.infer<typeof TemplateContainer>;
+
+/**
+ * A database server beside the instance: its own container, on a network only the two share, with
+ * its files outside the instance's. The game reaches it at GSM_DB_HOST:GSM_DB_PORT as GSM_DB_USER
+ * with GSM_DB_PASSWORD; the password is derived per instance and never stored. Backups carry a
+ * dump of it.
+ */
+export const TemplateDatabase = z.object({
+  engine: z.enum(DATABASE_ENGINES).default("mariadb"),
+  image: z.string().min(1).max(300).default("mariadb:11.4"),
+  /** The database's name, and its user's. */
+  name: z.string().regex(DATABASE_NAME_RE).default("gsm"),
+  /** The database container's memory limit; 0 = unlimited. */
+  memoryMb: z.number().int().min(0).max(1024 * 1024).default(1024),
+  /** A boolean variable that turns the database on per instance; always on when null. */
+  enabledBy: z.string().regex(VARIABLE_NAME_RE).nullable().default(null),
+});
+export type TemplateDatabase = z.infer<typeof TemplateDatabase>;
 
 /** Ids of player lists and actions: `ops`, `whitelist-add`. */
 export const PLAYER_KEY_RE = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -313,21 +440,45 @@ export const TemplateDefinition = z.object({
   console: z.object({
     readyPattern: z.string().max(500).nullable().default(null),
     /**
-     * For games that take commands on a network console instead of stdin: telnet or Source RCON
-     * on `port` inside the container (not a template port; it is never published). `password`
-     * may use placeholders, such as {{GSM_CONSOLE_PASSWORD}}; answers matching `ignore` are not
-     * shown (lines the game printed on stdout already).
+     * For games that do not read commands on stdin: telnet or Source RCON on `port` inside the
+     * container (not a template port; it is never published), or `fifo`, a named pipe at `path`
+     * inside the container that the image's start script reads its console from. `password` may
+     * use placeholders, such as {{GSM_CONSOLE_PASSWORD}}; answers matching `ignore` are not shown
+     * (lines the game printed on stdout already).
      */
     transport: z.object({
       kind: z.enum(CONSOLE_TRANSPORTS),
-      port: z.number().int().min(1).max(65535),
+      port: z.number().int().min(1).max(65535).nullable().default(null),
+      path: z.string().max(300).nullable().default(null),
       password: z.string().max(200).default(""),
       ignore: z.string().max(500).nullable().default(null),
+    }).superRefine((t, ctx) => {
+      if (t.kind !== "fifo") {
+        if (t.port === null) {
+          ctx.addIssue({ code: "custom", path: ["port"], message: "Needs the console's port" });
+        }
+        return;
+      }
+      const problem = t.path === null ? "Needs the pipe's path" : absolutePathProblem(t.path);
+      if (problem) ctx.addIssue({ code: "custom", path: ["path"], message: problem });
     }).nullable().default(null),
   }).default({ readyPattern: null, transport: null }),
   variables: z.array(TemplateVariable).max(64).default([]),
   ports: z.array(TemplatePort).max(32).default([]),
   files: z.array(TemplateConfigFile).max(32).default([]),
+  /**
+   * More environment for the container, with `{{VAR}}` placeholders: `"DB_HOST":
+   * "{{GSM_DB_HOST}}"` for an image that reads its own names. GSM_* names are the platform's.
+   */
+  env: z.record(z.string().regex(ENV_NAME_RE), z.string().max(2000)).default({}),
+  volumes: z.array(TemplateVolume).max(16).default([]),
+  container: TemplateContainer.default({
+    entrypoint: null,
+    user: null,
+    pull: "missing",
+    seccompUnconfined: false,
+  }),
+  database: TemplateDatabase.nullable().default(null),
   /** Defaults for new instances. */
   resources: z.object({
     memoryMb: z.number().int().min(0).default(2048),
@@ -368,6 +519,39 @@ export const TemplateDefinition = z.object({
     }
     names.add(p.name);
   });
+  const volumeNames = new Set<string>();
+  const volumePaths = new Set<string>();
+  d.volumes.forEach((v, i) => {
+    if (volumeNames.has(v.name)) {
+      ctx.addIssue({ code: "custom", path: ["volumes", i, "name"], message: "Duplicate volume" });
+    }
+    if (volumePaths.has(v.path)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["volumes", i, "path"],
+        message: "Another volume is mounted there",
+      });
+    }
+    volumeNames.add(v.name);
+    volumePaths.add(v.path);
+  });
+  for (const key of Object.keys(d.env)) {
+    if (key.startsWith("GSM_")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["env", key],
+        message: "GSM_* variables are set by the platform",
+      });
+    }
+  }
+  const enabledBy = d.database?.enabledBy;
+  if (enabledBy && !d.variables.some((v) => v.name === enabledBy && v.type === "boolean")) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["database", "enabledBy"],
+      message: "Must name a boolean variable of this template",
+    });
+  }
 });
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>;
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>;
@@ -418,7 +602,29 @@ export const BUILTIN_VARIABLES = [
     description:
       "A random secret for the game's network console (telnet or RCON), fixed per instance",
   },
+  {
+    name: "GSM_DB_HOST",
+    description:
+      "With a database: its host name inside the instance (db); empty while it is turned off",
+  },
+  { name: "GSM_DB_PORT", description: "With a database: its port (3306)" },
+  { name: "GSM_DB_NAME", description: "With a database: the database's name" },
+  { name: "GSM_DB_USER", description: "With a database: the user the game signs in as" },
+  {
+    name: "GSM_DB_PASSWORD",
+    description: "With a database: that user's password, derived per instance",
+  },
 ] as const;
+
+/** Whether an instance with these variables has the template's database turned on. */
+export function databaseEnabled(
+  def: Pick<TemplateDefinition, "database" | "variables">,
+  vars: Record<string, string>,
+): boolean {
+  if (!def.database) return false;
+  const by = def.database.enabledBy;
+  return by === null || (vars[by] ?? def.variables.find((v) => v.name === by)?.default) === "true";
+}
 
 /** The port a port's run starts at (itself unless it `follows` one) and how far after it it is. */
 export function portRun(

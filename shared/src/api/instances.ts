@@ -9,9 +9,77 @@ import type { InstanceStats, ResourceLimits } from "../protocol/instances.ts";
 import { Pagination } from "./common.ts";
 import type { InstanceReachability } from "./reachability.ts";
 import type { InstanceFirewallDto } from "./firewall.ts";
-import { VARIABLE_NAME_RE } from "./templates.ts";
+import { containerPathProblem, hostPathProblem, VARIABLE_NAME_RE } from "./templates.ts";
+import type { DatabaseEngine } from "../enums.ts";
 
 export const VariableValues = z.record(z.string().regex(VARIABLE_NAME_RE), z.string().max(4000));
+
+const pathChecked = (max: number, problem: (p: string) => string | null) =>
+  z.string().min(2).max(max).superRefine((p, ctx) => {
+    const why = problem(p);
+    if (why) ctx.addIssue({ code: "custom", message: why });
+  });
+
+/**
+ * A directory on the node mounted into the instance's container. Only admins set them, and the
+ * node's agent refuses paths outside the roots its config allows.
+ */
+export const HostMount = z.object({
+  hostPath: pathChecked(500, hostPathProblem),
+  containerPath: pathChecked(300, containerPathProblem),
+  readOnly: z.boolean().default(false),
+});
+export type HostMount = z.infer<typeof HostMount>;
+
+const HostMounts = z.array(HostMount).max(16).superRefine((list, ctx) => {
+  const seen = new Set<string>();
+  list.forEach((m, i) => {
+    if (seen.has(m.containerPath)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [i, "containerPath"],
+        message: "Another mount uses that path",
+      });
+    }
+    seen.add(m.containerPath);
+  });
+});
+
+/** A template volume as an instance has it: `folder` is where it is in the instance's files. */
+export interface InstanceVolumeDto {
+  name: string;
+  label: string;
+  description: string;
+  /** Inside the container. */
+  path: string;
+  /** In the instance's files: volumes/<name>. */
+  folder: string;
+  backup: boolean;
+}
+
+/** How the game reaches the instance's database; the password is shown to `settings` roles. */
+export interface InstanceDatabaseDto {
+  engine: DatabaseEngine;
+  image: string;
+  host: string;
+  port: number;
+  name: string;
+  user: string;
+  password: string;
+}
+
+export const DatabaseDumpBody = z.object({
+  /** Where in the instance's files; `database-dumps/<name>-<time>.sql.gz` when null. */
+  path: z.string().min(1).max(512).regex(
+    /\.sql\.gz$/,
+    "The dump is gzipped: end the name in .sql.gz",
+  )
+    .nullable().default(null),
+});
+export const DatabaseImportBody = z.object({
+  /** A .sql or .sql.gz file in the instance's files. */
+  path: z.string().min(1).max(512),
+});
 
 export interface InstancePortDto {
   name: string;
@@ -51,6 +119,8 @@ export interface InstanceDto {
   /** The last reachability check of its ports (current ports only); null before the first. */
   reachability: InstanceReachability | null;
   firewall: InstanceFirewallDto;
+  /** The database server beside it, when its template has one and it is turned on. */
+  database: { engine: DatabaseEngine; image: string; name: string } | null;
 }
 
 export interface InstanceDetailDto extends InstanceDto {
@@ -59,6 +129,10 @@ export interface InstanceDetailDto extends InstanceDto {
   /** The startup command, when overridden per instance. */
   startupOverride: string | null;
   createdBy: { id: number; name: string } | null;
+  /** The template's volumes: instance folders mounted elsewhere in the container. */
+  volumes: InstanceVolumeDto[];
+  /** Node directories mounted into the container (set by admins). */
+  mounts: HostMount[];
 }
 
 export interface InstanceAccessDto {
@@ -126,6 +200,8 @@ export const UpdateInstanceBody = z.object({
   restartOnCrash: z.boolean().optional(),
   autoStart: z.boolean().optional(),
   startupOverride: z.string().max(4000).nullable().optional(),
+  /** Admins only. Replaces the list; the instance must be stopped. */
+  mounts: HostMounts.optional(),
 });
 export type UpdateInstanceBody = z.input<typeof UpdateInstanceBody>;
 

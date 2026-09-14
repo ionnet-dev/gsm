@@ -80,7 +80,8 @@ URLs for the install script (`SERVER_JAR_URL`, `INSTALLER_URL`) right before an 
 templates never hard-code URLs. Both are in `modules/templates/versions.ts` and cached.
 `steam:294420` lists 7 Days to Die's public Steam branches from api.steamcmd.net (`public` first,
 labelled with the version it carries, then `latest_experimental`, then older ones), falling back to
-those two when it cannot be reached; the install script hands the branch to SteamCMD.
+those two when it cannot be reached; the install script hands the branch to SteamCMD. `steam:4020`
+does the same for Garry's Mod, falling back to `public` and `x86-64`.
 
 **Ports** may `follow` another port: such a port is always that port plus one, so a run (7 Days to
 Die's game port and the two after it) is allocated as one block of free ports in a row, and only its
@@ -88,14 +89,24 @@ first port can be chosen. **Variables** may carry a `group` (a heading in the fo
 `select`, `allowCustom` (the options are suggestions and any value is accepted, like 7 Days to Die's
 world). **Config files** are merged by the agent as `properties`, `json`, `ini`, `yaml` or
 `xml-properties` (`<property name="…" value="…"/>` elements, 7 Days to Die's serverconfig.xml;
-commented-out properties are left alone).
+commented-out properties are left alone) or `source-cfg` (`name "value"` lines of a Source engine
+.cfg, Garry's Mod's server.cfg: every line setting a name is rewritten, keeping its `//` comment; a
+line holding several commands is left alone and the value added at the end, where it wins).
 
 **Console transport.** A game that does not read stdin declares `console.transport`: telnet or
 Source RCON on a port inside the container. The agent dials it on the container's Docker address
 (the port is never published), signs in with the password (usually `{{GSM_CONSOLE_PASSWORD}}`, an
 HMAC of `SESSION_SECRET` and the instance, so it is never stored), sends console commands and the
 stop command there, and adds the answers to the console, leaving out lines matching `ignore` (7 Days
-to Die repeats its whole log over telnet). See `docs/protocol.md` → Console transport.
+to Die repeats its whole log over telnet). A `fifo` transport instead writes each command into a
+named pipe inside the container (`path`), for images whose own start script reads its console from
+one; the answers arrive on stdout. See `docs/protocol.md` → Console transport.
+
+**Garry's Mod** (`templates/garrys-mod.json`) installs srcds with SteamCMD into `/data/server` and
+runs it under `script`: without a terminal srcds holds its output back in large blocks. Its
+server.cfg is a `source-cfg` file with `log on`, because the join and leave lines
+(`"Name<2><STEAM_0:1:…><>" entered the game`) only come with logging. Who is online comes from
+`status;echo ---- end of status`: the rows before the marker line.
 
 ## Instances
 
@@ -105,17 +116,20 @@ for every operation so the agent never has to remember configuration: it holds o
 the data directory `<dataDir>/instances/<uuid>` (mounted at `/data`) and the console log.
 
 - **Environment**: the instance's variables, plus `GSM_INSTANCE_UUID`, `GSM_INSTANCE_NAME`,
-  `GSM_MEMORY_MB`, `GSM_HEAP_MB` (`heapForMemory`), `GSM_PORT_<NAME>` per port, `GSM_BIND` and
-  `GSM_CONSOLE_PASSWORD`. `{{VAR}}` placeholders in the startup command and config file values are
-  substituted by the server (`substitute`).
+  `GSM_MEMORY_MB`, `GSM_HEAP_MB` (`heapForMemory`), `GSM_PORT_<NAME>` per port, `GSM_BIND`,
+  `GSM_CONSOLE_PASSWORD` and, with a database, `GSM_DB_HOST`, `GSM_DB_PORT`, `GSM_DB_NAME`,
+  `GSM_DB_USER` and `GSM_DB_PASSWORD` (empty while it is turned off), then the template's own `env`.
+  `{{VAR}}` placeholders in the startup command, config file values and `env` are substituted by the
+  server (`substitute`).
 - **Install** runs the template's script in a one-off container as the instance user
   (`inst.install`, output streamed as the `install` console stream) with the data directory mounted;
   success writes the `.gsm-installed` marker and sets `installedAt`. Status is `installing` /
   `install_failed` meanwhile.
 - **Start** creates the container (`inst.start`): image, env, published ports on the node's bind
-  address, memory and CPU limits, `--user 1500:1500`, restart policy off (the agent handles crash
-  restarts itself so it can tell a crash from a stop). Status goes `starting`, then `running` when a
-  console line matches the ready pattern (or straight away without one).
+  address, memory and CPU limits, `--user 1500:1500` (or the template's user), the volumes and host
+  mounts, restart policy off (the agent handles crash restarts itself so it can tell a crash from a
+  stop). A database is started first. Status goes `starting`, then `running` when a console line
+  matches the ready pattern (or straight away without one).
 - **Stop** types the stop command into the console, waits `timeoutSeconds`, then sends the signal
   and finally kills (`inst.stop`). `kill` skips straight to SIGKILL.
 - **Console**: the agent attaches to the container's stdio, batches lines into `inst.console` events
@@ -132,6 +146,41 @@ the data directory `<dataDir>/instances/<uuid>` (mounted at `/data`) and the con
   only their instances and nodes (lists, the UI socket, and `myRole` on every DTO). Changing access,
   or creating an instance on an owned node, closes the user's UI sockets so they reconnect with the
   new scope.
+
+## Prebuilt images, volumes and databases
+
+The platform's images keep a game server under `/data`. A template can also run an image built
+elsewhere, with the server baked in and only some folders worth keeping:
+
+- **Container options** (`container`): `entrypoint` replaces the image's (then `sh -c "<startup>"`
+  follows; an empty list means none, and Docker's init runs as PID 1), `user` runs the container and
+  owns the instance's files as another uid:gid, `pull: "always"` pulls before every start and
+  install (for tags such as `latest`; the node's copy is used when the registry cannot be reached)
+  and `seccompUnconfined` turns Docker's seccomp filter off (some Docker hosts refuse a socket call
+  32-bit Source servers make). `env` adds environment in the image's own names, with placeholders.
+- **Volumes** (`volumes`) are folders of the instance mounted elsewhere: `volumes/<name>` in the
+  instance's files appears at the volume's `path`. The agent creates a missing one before the
+  container starts; with `seed` it first copies what the image has at that path (stock maps) out of
+  a created, never started container, owned by the instance user. Deleting the folder fills it again
+  on the next start. Being files like any other, volumes show in the file manager and SFTP, outlive
+  reinstalls and image updates, and are backed up unless `backup: false` (caches). A volume folder
+  that is a symlink is refused: Docker would follow it on the node.
+- **Host mounts** (`InstanceDetailDto.mounts`) bind a node directory into one instance. Only admins
+  set them, and only under the directories the node's agent config lists in `host_mounts` (reported
+  as `Inventory.hostMountRoots`); the agent checks again, symlinks resolved, before every start.
+- **Database** (`database`, optionally turned on per instance by a boolean variable `enabledBy`): a
+  MariaDB container `gsm-db-<uuid>` on a network `gsm-net-<uuid>` shared only with the game's
+  container, which reaches it as `db:3306`. Its files live in `<dataDir>/databases/<uuid>`, outside
+  the instance's files. The server derives both passwords from `SESSION_SECRET` and the instance, so
+  none is stored; on every start the agent makes the database and the game's user match them. It
+  starts before the game, stops after an operator stops it, and keeps running across a restart and
+  after a crash. `db.dump` and `db.import` move data between it and a `.sql.gz` in the instance's
+  files (starting it for the job when it is down); backups carry a dump and restores import it.
+
+Nothing here reaches an agent older than 0.6.0 (`CONTAINER_OPTIONS_AGENT`): it would ignore what it
+does not know, so the server refuses to start such an instance there and asks for an update.
+Template definitions saved before these fields existed are read through the schema
+(`templates/normalize.ts`), which fills in their defaults.
 
 ## Files and backups
 
@@ -157,7 +206,9 @@ firewall" on, an instance's owners can have the agent open its ports with ufw or
 (`fw.apply`), and the agent keeps the SFTP port open. Opened ports follow port changes.
 
 Backups are `.tar.gz` archives under `<dataDir>/backups/<uuid>/` made by the agent (`backup.create`,
-progress streamed), recorded in `backups` with size and SHA-256. Restoring requires a stopped
+progress streamed), recorded in `backups` with size and SHA-256. Volumes marked `backup: false` are
+left out. With a database, the agent puts a dump at `.gsm/database.sql.gz` for the archive (and
+removes it afterwards); a restore imports it into the database. Restoring requires a stopped
 instance. Downloads go through the same transfer relay.
 
 ## Players

@@ -10,6 +10,7 @@ import {
 import type { TemplateDefinition } from "@gsm/shared";
 import { sequelize } from "../../db/sequelize.ts";
 import { ID } from "../../lib/model.ts";
+import { normalizeDefinition } from "./normalize.ts";
 
 /**
  * A game template. Built-ins are seeded from templates/*.json on start (and refreshed when the
@@ -53,7 +54,14 @@ Template.init(
     tags: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
     builtin: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     revision: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
-    definition: { type: DataTypes.JSON, allowNull: false },
+    definition: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      // Saved under an older schema, a definition lacks newer fields; reading fills them in.
+      get(this: Template) {
+        return normalizeDefinition(this.getDataValue("definition"));
+      },
+    },
     createdBy: { type: DataTypes.BIGINT, allowNull: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),

@@ -64,7 +64,11 @@ export function compileMatcher(p: TemplatePlayers, now: () => number = Date.now)
     validName,
     match(raw) {
       const line = raw.replace(ANSI, "");
-      const groups = (r: RegExp | null) => r?.exec(line)?.groups;
+      // A match with no named groups still matches: a list answer's last line needs none.
+      const groups = (r: RegExp | null) => {
+        const found = r?.exec(line);
+        return found ? (found.groups ?? {}) : undefined;
+      };
       let g = groups(join);
       if (g && validName(g.name)) return { type: "join", name: g.name, id: g.id || null };
       g = groups(leave);

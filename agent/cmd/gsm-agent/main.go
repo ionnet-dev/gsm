@@ -150,7 +150,12 @@ func run(args []string) int {
 		Logs:      cfg.LogsDir(),
 		Backups:   cfg.BackupsDir(),
 		State:     cfg.StateDir(),
+		Databases: cfg.DatabasesDir(),
 	}, log)
+	manager.HostMountRoots = cfg.HostMounts
+	if len(cfg.HostMounts) > 0 {
+		log.Info("host mounts allowed", "roots", cfg.HostMounts)
+	}
 	if err := manager.Reconcile(ctx); err != nil {
 		log.Warn("reconcile failed", "err", err)
 	}
@@ -168,7 +173,7 @@ func run(args []string) int {
 			hello := protocol.Hello{
 				ProtocolVersion: protocol.Version,
 				AgentVersion:    version,
-				Inventory:       inventory.Collect(ctx, cfg.DataDir, dk),
+				Inventory:       nodeInventory(ctx, cfg, dk),
 			}
 			if err := c.Emit(ctx, "hello", hello); err != nil {
 				return err
@@ -213,6 +218,15 @@ func run(args []string) int {
 	return 0
 }
 
+// nodeInventory is the inventory plus the directories the config lets instances mount.
+func nodeInventory(ctx context.Context, cfg config.Config, dk *docker.Client) protocol.Inventory {
+	inv := inventory.Collect(ctx, cfg.DataDir, dk)
+	if len(cfg.HostMounts) > 0 {
+		inv.HostMountRoots = cfg.HostMounts
+	}
+	return inv
+}
+
 func metricsLoop(ctx context.Context, c *transport.Client, s *metrics.Sampler, every time.Duration, log *slog.Logger) {
 	t := time.NewTimer(2 * time.Second)
 	defer t.Stop()
@@ -236,7 +250,7 @@ func registerAgent(client *transport.Client, cfg config.Config, dk *docker.Clien
 		return protocol.PingResult{At: time.Now().UTC(), AgentVersion: version}, nil
 	})
 	client.Handle("sys.inventory", func(ctx context.Context, _ json.RawMessage, _ transport.StreamWriter) (any, error) {
-		return inventory.Collect(ctx, cfg.DataDir, dk), nil
+		return nodeInventory(ctx, cfg, dk), nil
 	})
 	client.Handle("agent.configure", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
 		var p protocol.AgentConfigureParams
@@ -398,6 +412,31 @@ func registerInstances(client *transport.Client, m *instances.Manager, sftpSrv *
 			return nil, err
 		}
 		return protocol.InstStatsResult{Stats: m.Stats(ctx, p.UUIDs)}, nil
+	})
+	client.Handle("db.dump", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
+		var p protocol.DBParams
+		if err := decode(raw, &p, func() bool { return p.UUID != "" && p.Path != "" }); err != nil {
+			return nil, err
+		}
+		log.Info("db.dump", "uuid", p.UUID, "path", p.Path)
+		res, err := m.DumpDatabase(ctx, p.UUID, &p.Database, p.Path)
+		if err != nil {
+			log.Warn("db.dump failed", "uuid", p.UUID, "err", err)
+			return nil, rpcErr(err)
+		}
+		return res, nil
+	})
+	client.Handle("db.import", func(ctx context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {
+		var p protocol.DBParams
+		if err := decode(raw, &p, func() bool { return p.UUID != "" && p.Path != "" }); err != nil {
+			return nil, err
+		}
+		log.Info("db.import", "uuid", p.UUID, "path", p.Path)
+		if err := m.ImportDatabase(ctx, p.UUID, &p.Database, p.Path); err != nil {
+			log.Warn("db.import failed", "uuid", p.UUID, "err", err)
+			return nil, rpcErr(err)
+		}
+		return map[string]any{}, nil
 	})
 }
 

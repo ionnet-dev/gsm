@@ -40,6 +40,11 @@ function InstanceLayout() {
       label: "Backups",
       show: roleAllows(i.myRole, "backups"),
     },
+    {
+      to: "/instances/$instanceId/database",
+      label: "Database",
+      show: !!i.database && roleAllows(i.myRole, "settings"),
+    },
     { to: "/instances/$instanceId/settings", label: "Settings", show: true },
     { to: "/instances/$instanceId/access", label: "Access", show: roleAllows(i.myRole, "access") },
     { to: "/instances/$instanceId/activity", label: "Activity", show: true },

@@ -1,22 +1,45 @@
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { InstanceDetailDto, TemplateDetailDto } from "@gsm/shared";
-import { BUILTIN_VARIABLES, portRun, roleAllows, validateVariable } from "@gsm/shared";
-import { errorMessage } from "@/api/client";
+import type {
+  HostMount,
+  InstanceDetailDto,
+  InstanceVolumeDto,
+  NodeDetailDto,
+  TemplateDetailDto,
+} from "@gsm/shared";
+import {
+  BUILTIN_VARIABLES,
+  containerPathProblem,
+  hostPathProblem,
+  portRun,
+  roleAllows,
+  validateVariable,
+} from "@gsm/shared";
+import { useAuth } from "@/api/auth";
+import { ApiError, errorMessage } from "@/api/client";
 import { useInstance, useInstanceMutations } from "@/api/instances";
 import { useNode } from "@/api/nodes";
 import { useTemplate } from "@/api/templates";
 import { ConfirmDialog } from "@/components/data/confirm-dialog";
 import { Field } from "@/components/data/field";
 import { VariableFields } from "@/components/instances/variable-fields";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
 const parent = getRouteApi("/_app/instances/$instanceId");
@@ -306,6 +329,14 @@ function SettingsForm(
         </div>
       </fieldset>
 
+      {i.volumes.length > 0 && <VolumesCard volumes={i.volumes} />}
+      <HostMountsCard
+        instance={i}
+        node={nodeDetail?.node ?? null}
+        running={running}
+        canSettings={canSettings}
+      />
+
       {roleAllows(i.myRole, "delete") && (
         <Card className="border-status-critical/40">
           <CardHeader>
@@ -377,5 +408,256 @@ function SettingsForm(
         </Card>
       )}
     </div>
+  );
+}
+
+/** The template's volumes: read-only here, they come with the template. */
+function VolumesCard({ volumes }: { volumes: InstanceVolumeDto[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Volumes</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <p className="text-xs text-muted-foreground">
+          Folders of the instance's files that the template mounts elsewhere in the container. Like
+          the rest of the files, they outlive reinstalls and image updates.
+        </p>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Volume</TableHead>
+                <TableHead>In the container</TableHead>
+                <TableHead>In the files</TableHead>
+                <TableHead>Backups</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {volumes.map((v) => (
+                <TableRow key={v.name}>
+                  <TableCell>
+                    <div className="font-medium">{v.label}</div>
+                    {v.description && (
+                      <div className="text-xs text-muted-foreground">{v.description}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{v.path}</TableCell>
+                  <TableCell className="font-mono text-xs">{v.folder}</TableCell>
+                  <TableCell className="text-xs">
+                    {v.backup
+                      ? "Included"
+                      : <span className="text-muted-foreground">Left out</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Whether `path` is `root` or inside it; the server and the agent check the same way. */
+const within = (path: string, root: string) => {
+  const r = root.replace(/\/+$/, "");
+  return path === r || path.startsWith(`${r}/`);
+};
+
+/** Per-field messages of a refused save: zod issues, or the server's `{ "mounts.0.hostPath": … }`. */
+function fieldErrors(e: Error): Record<string, string> {
+  if (!(e instanceof ApiError) || !e.details || typeof e.details !== "object") return {};
+  if (Array.isArray(e.details)) {
+    return Object.fromEntries(
+      (e.details as { path?: (string | number)[]; message?: string }[])
+        .filter((d) => d.path?.length && d.message)
+        .map((d) => [d.path!.join("."), d.message!]),
+    );
+  }
+  return Object.fromEntries(
+    Object.entries(e.details).filter(([, v]) => typeof v === "string"),
+  ) as Record<string, string>;
+}
+
+/** Node directories in the container. Everyone with settings sees them; only admins change them. */
+function HostMountsCard({ instance: i, node, running, canSettings }: {
+  instance: InstanceDetailDto;
+  node: NodeDetailDto | null;
+  running: boolean;
+  canSettings: boolean;
+}) {
+  const { admin } = useAuth();
+  const { update } = useInstanceMutations();
+  const [rows, setRows] = useState<HostMount[]>(i.mounts);
+  const [rejected, setRejected] = useState<Record<string, string>>({});
+  // Refetches (stats, status) bring a new array with the same mounts: only a saved change resets.
+  const saved = JSON.stringify(i.mounts);
+  useEffect(() => {
+    setRows(JSON.parse(saved));
+    setRejected({});
+  }, [saved]);
+  if (!canSettings || (!admin && i.mounts.length === 0)) return null;
+
+  // Null until the node has reported which directories its agent allows.
+  const roots = node?.inventory ? node.inventory.hostMountRoots ?? [] : null;
+  const edit = (next: HostMount[]) => {
+    setRows(next);
+    setRejected({});
+  };
+  const set = (k: number, patch: Partial<HostMount>) =>
+    edit(rows.map((m, j) => (j === k ? { ...m, ...patch } : m)));
+  const hostError = (m: HostMount, k: number) =>
+    rejected[`mounts.${k}.hostPath`] ?? (m.hostPath === "" ? null : hostPathProblem(m.hostPath) ??
+      (roots && !roots.some((r) => within(m.hostPath, r))
+        ? `Not under a directory ${i.node.name} allows`
+        : null));
+  const containerError = (m: HostMount, k: number) =>
+    rejected[`mounts.${k}.containerPath`] ??
+      (m.containerPath === "" ? null : containerPathProblem(m.containerPath) ??
+        (rows.some((o, j) => j < k && o.containerPath === m.containerPath)
+          ? "Another mount uses that path"
+          : i.volumes.some((v) => v.path === m.containerPath)
+          ? "A volume of the template is mounted there"
+          : null));
+  const bad = rows.some((m, k) =>
+    !m.hostPath || !m.containerPath || hostError(m, k) || containerError(m, k)
+  );
+  const dirty = JSON.stringify(rows) !== JSON.stringify(i.mounts);
+  const save = () =>
+    update.mutate({ id: i.id, mounts: rows }, {
+      onSuccess: () => toast.success("Mounts saved"),
+      onError: (e) => {
+        setRejected(fieldErrors(e));
+        toast.error(errorMessage(e));
+      },
+    });
+  const cols = "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5rem_1.75rem]";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Host mounts</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <p className="text-xs text-muted-foreground">
+          Directories on the node mounted into the container. {admin
+            ? (
+              <>
+                The node's agent must allow each one under{" "}
+                <code className="font-mono">host_mounts</code> in its{" "}
+                <code className="font-mono">config.yaml</code>.
+              </>
+            )
+            : "Only admins change them."}
+        </p>
+        {admin && roots && (
+          <p className="text-xs text-muted-foreground">
+            {roots.length
+              ? (
+                <>
+                  {i.node.name} allows:{" "}
+                  <span className="font-mono text-foreground">{roots.join(", ")}</span>
+                </>
+              )
+              : `${i.node.name} allows no host mounts yet.`}
+          </p>
+        )}
+        {!admin && (
+          <div className="grid gap-1 text-xs">
+            {i.mounts.map((m) => (
+              <div key={m.containerPath} className="flex flex-wrap items-center gap-x-2 font-mono">
+                <span className="break-all">{m.hostPath}</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="break-all">{m.containerPath}</span>
+                {m.readOnly && <Badge variant="muted">read-only</Badge>}
+              </div>
+            ))}
+          </div>
+        )}
+        {admin && (
+          <>
+            {running && (
+              <p className="text-xs text-status-degraded">
+                Mounts can only change while the instance is stopped.
+              </p>
+            )}
+            <fieldset disabled={running || update.isPending} className="grid gap-2">
+              {rows.length === 0 && (
+                <p className="text-xs text-muted-foreground">No host mounts.</p>
+              )}
+              {rows.length > 0 && (
+                <div className={`hidden gap-2 text-xs font-medium sm:grid ${cols}`}>
+                  <span>On the node</span>
+                  <span>In the container</span>
+                  <span>Read-only</span>
+                </div>
+              )}
+              {rows.map((m, k) => {
+                const he = hostError(m, k);
+                const ce = containerError(m, k);
+                return (
+                  <div key={k} className={`grid gap-2 sm:items-start ${cols}`}>
+                    <div className="grid gap-1">
+                      <Input
+                        value={m.hostPath}
+                        onChange={(e) => set(k, { hostPath: e.target.value.trim() })}
+                        placeholder="/srv/shared/maps"
+                        aria-label="Path on the node"
+                        className="font-mono"
+                        spellCheck={false}
+                      />
+                      {he && <p className="text-xs text-destructive">{he}</p>}
+                    </div>
+                    <div className="grid gap-1">
+                      <Input
+                        value={m.containerPath}
+                        onChange={(e) => set(k, { containerPath: e.target.value.trim() })}
+                        placeholder="/opt/maps"
+                        aria-label="Path in the container"
+                        className="font-mono"
+                        spellCheck={false}
+                      />
+                      {ce && <p className="text-xs text-destructive">{ce}</p>}
+                    </div>
+                    <label className="flex h-8 items-center gap-2 text-xs">
+                      <Switch
+                        checked={m.readOnly}
+                        onCheckedChange={(v) => set(k, { readOnly: v })}
+                        aria-label="Read-only"
+                      />
+                      <span className="sm:hidden">Read-only</span>
+                    </label>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Remove mount"
+                      className="mt-0.5"
+                      onClick={() => edit(rows.filter((_, j) => j !== k))}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                );
+              })}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={rows.length >= 16}
+                  onClick={() =>
+                    edit([...rows, { hostPath: "", containerPath: "", readOnly: false }])}
+                >
+                  <Plus /> Add mount
+                </Button>
+                <Button size="sm" disabled={!dirty || bad || update.isPending} onClick={save}>
+                  {update.isPending ? <Loader2 className="animate-spin" /> : <Save />} Save mounts
+                </Button>
+              </div>
+            </fieldset>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -10,6 +10,7 @@ import {
 import type {
   BackupStatus,
   FirewallRule,
+  HostMount,
   InstanceReachability,
   InstanceRole,
   InstanceStats,
@@ -50,6 +51,8 @@ export class Instance extends Model<InferAttributes<Instance>, InferCreationAttr
   declare firewall: CreationOptional<
     { open: boolean; rules: FirewallRule[]; updatedAt: string } | null
   >;
+  /** Node directories mounted into the container, set by admins (null = none). */
+  declare mounts: CreationOptional<HostMount[] | null>;
   declare createdBy: ForeignKey<number | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -85,6 +88,7 @@ Instance.init(
     containerId: { type: DataTypes.STRING(80), allowNull: true },
     reachability: { type: DataTypes.JSON, allowNull: true },
     firewall: { type: DataTypes.JSON, allowNull: true },
+    mounts: { type: DataTypes.JSON, allowNull: true },
     createdBy: { type: DataTypes.BIGINT, allowNull: true },
     createdAt: DataTypes.DATE(3),
     updatedAt: DataTypes.DATE(3),

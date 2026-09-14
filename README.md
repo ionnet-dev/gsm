@@ -2,7 +2,8 @@
 
 Game server manager. A central panel with a web UI, plus a small agent on every node that runs game
 servers as Docker containers. GSM installs servers from templates (Minecraft: Java Edition vanilla,
-Forge and NeoForge, and 7 Days to Die built in; custom templates for anything else), streams their
+Forge and NeoForge, 7 Days to Die and Garry's Mod built in; custom templates for anything else,
+including prebuilt images with their own volumes and a MariaDB database beside them), streams their
 consoles, manages their files and backups, and lets you share each server with other users at the
 role you choose.
 

@@ -55,5 +55,31 @@
   "user": {
     "uid": 1500,
     "gid": 1500
+  },
+  "entrypoint": [],
+  "volumes": [
+    {
+      "name": "maps",
+      "path": "/opt/game/maps",
+      "seed": true
+    }
+  ],
+  "mounts": [
+    {
+      "hostPath": "/srv/gsm/gamemodes",
+      "containerPath": "/opt/game/gamemodes",
+      "readOnly": true
+    }
+  ],
+  "pull": "always",
+  "seccompUnconfined": false,
+  "database": {
+    "engine": "mariadb",
+    "image": "mariadb:11.4",
+    "name": "gsm",
+    "user": "gsm",
+    "password": "0123456789abcdefABCDEF",
+    "rootPassword": "fedcba9876543210FEDCBA",
+    "memoryMb": 1024
   }
 }

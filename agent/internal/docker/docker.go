@@ -3,12 +3,14 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
@@ -201,6 +204,15 @@ type CreateOptions struct {
 	AutoRemove  bool
 	Init        bool
 	StopSignal  string
+	// Entrypoint replaces the image's when non-nil; an empty one runs Cmd with no entrypoint.
+	Entrypoint  []string
+	SecurityOpt []string
+	// Network is a user-defined network to join instead of the default bridge; Aliases name the
+	// container on it.
+	Network string
+	Aliases []string
+	// RestartOnFailure lets the daemon restart the container when it exits with an error.
+	RestartOnFailure bool
 }
 
 // ContainerCreate creates (without starting) a container and returns its id.
@@ -233,17 +245,28 @@ func (c *Client) ContainerCreate(ctx context.Context, o CreateOptions) (string, 
 	if o.StopSignal != "" {
 		cfg.StopSignal = o.StopSignal
 	}
+	if o.Entrypoint != nil {
+		cfg.Entrypoint = o.Entrypoint
+		if len(o.Entrypoint) == 0 {
+			// The daemon reads a single empty string as "no entrypoint".
+			cfg.Entrypoint = []string{""}
+		}
+	}
 	host := &container.HostConfig{
 		Binds:         o.Binds,
 		PortBindings:  bindings,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		AutoRemove:    o.AutoRemove,
+		SecurityOpt:   o.SecurityOpt,
 		LogConfig:     container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "5m", "max-file": "2"}},
 		Resources: container.Resources{
 			Memory:     o.MemoryBytes,
 			MemorySwap: o.MemoryBytes,
 			NanoCPUs:   o.NanoCPUs,
 		},
+	}
+	if o.RestartOnFailure {
+		host.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyOnFailure, MaximumRetryCount: 5}
 	}
 	if o.MemoryBytes == 0 {
 		host.Resources.MemorySwap = 0
@@ -252,7 +275,14 @@ func (c *Client) ContainerCreate(ctx context.Context, o CreateOptions) (string, 
 		t := true
 		host.Init = &t
 	}
-	res, err := c.api.ContainerCreate(ctx, cfg, host, nil, nil, o.Name)
+	var netCfg *network.NetworkingConfig
+	if o.Network != "" {
+		host.NetworkMode = container.NetworkMode(o.Network)
+		netCfg = &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+			o.Network: {Aliases: o.Aliases},
+		}}
+	}
+	res, err := c.api.ContainerCreate(ctx, cfg, host, netCfg, nil, o.Name)
 	if err != nil {
 		return "", err
 	}
@@ -475,4 +505,127 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (*Stats, error) 
 // IsNotFound reports whether the daemon said the object does not exist.
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound) || errdefs.IsNotFound(err)
+}
+
+// CopyFrom streams path out of a container (created or running) as a tar archive whose entries
+// start with the path's base name. A path the container does not have is IsNotFound.
+func (c *Client) CopyFrom(ctx context.Context, id, path string) (io.ReadCloser, error) {
+	rc, _, err := c.api.CopyFromContainer(ctx, id, path)
+	return rc, err
+}
+
+// ContainerLogsTail returns the last n lines a container printed, stdout and stderr together.
+func (c *Client) ContainerLogsTail(ctx context.Context, id string, n int) (string, error) {
+	rc, err := c.api.ContainerLogs(ctx, id, container.LogsOptions{ShowStdout: true, ShowStderr: true, Tail: strconv.Itoa(n)})
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	var buf bytes.Buffer
+	_, err = stdcopy.StdCopy(&buf, &buf, rc)
+	return strings.TrimSpace(buf.String()), err
+}
+
+// tailBuffer keeps the last max bytes written to it.
+type tailBuffer struct {
+	max int
+	b   []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if len(t.b) > t.max {
+		t.b = t.b[len(t.b)-t.max:]
+	}
+	return len(p), nil
+}
+
+// Exec runs cmd in a running container with env added, copying stdin (may be nil) in and stdout
+// (may be nil) out. It returns the exit code and the end of what the command wrote to stderr.
+func (c *Client) Exec(ctx context.Context, id string, cmd, env []string, stdin io.Reader, stdout io.Writer) (int, string, error) {
+	created, err := c.api.ContainerExecCreate(ctx, id, container.ExecOptions{
+		Cmd:          cmd,
+		Env:          env,
+		AttachStdin:  stdin != nil,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return -1, "", err
+	}
+	att, err := c.api.ContainerExecAttach(ctx, created.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return -1, "", err
+	}
+	defer att.Close()
+	copyErr := make(chan error, 1)
+	if stdin != nil {
+		go func() {
+			_, err := io.Copy(att.Conn, stdin)
+			_ = att.CloseWrite()
+			copyErr <- err
+		}()
+	} else {
+		copyErr <- nil
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	stderr := &tailBuffer{max: 4096}
+	done := make(chan error, 1)
+	go func() {
+		_, err := stdcopy.StdCopy(stdout, stderr, att.Reader)
+		done <- err
+	}()
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		att.Close()
+		<-done
+		return -1, strings.TrimSpace(string(stderr.b)), ctx.Err()
+	}
+	if err != nil {
+		return -1, strings.TrimSpace(string(stderr.b)), err
+	}
+	if err := <-copyErr; err != nil {
+		return -1, strings.TrimSpace(string(stderr.b)), fmt.Errorf("feeding the command: %w", err)
+	}
+	// The output ends as the process exits; the daemon may take a moment to record the code.
+	for i := 0; ; i++ {
+		insp, err := c.api.ContainerExecInspect(ctx, created.ID)
+		if err != nil {
+			return -1, strings.TrimSpace(string(stderr.b)), err
+		}
+		if !insp.Running || i >= 50 {
+			return insp.ExitCode, strings.TrimSpace(string(stderr.b)), nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// ---- networks ----
+
+// NetworkEnsure creates a bridge network with the labels unless one of that name exists.
+func (c *Client) NetworkEnsure(ctx context.Context, name string, labels map[string]string) error {
+	_, err := c.api.NetworkInspect(ctx, name, network.InspectOptions{})
+	if err == nil {
+		return nil
+	}
+	if !errdefs.IsNotFound(err) {
+		return err
+	}
+	_, err = c.api.NetworkCreate(ctx, name, network.CreateOptions{Driver: "bridge", Labels: labels})
+	if err != nil && errdefs.IsConflict(err) {
+		return nil // made meanwhile
+	}
+	return err
+}
+
+// NetworkRemove removes a network; a missing one is not an error.
+func (c *Client) NetworkRemove(ctx context.Context, name string) error {
+	err := c.api.NetworkRemove(ctx, name)
+	if err != nil && errdefs.IsNotFound(err) {
+		return nil
+	}
+	return err
 }

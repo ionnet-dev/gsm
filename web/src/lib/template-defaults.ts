@@ -1,4 +1,27 @@
-import type { TemplateDefinitionInput, TemplatePlayers, TemplateVariable } from "@gsm/shared";
+import type {
+  TemplateContainer,
+  TemplateDatabase,
+  TemplateDefinitionInput,
+  TemplatePlayers,
+  TemplateVariable,
+} from "@gsm/shared";
+
+/** How the container runs when a template says nothing: right for the base image. */
+export const DEFAULT_CONTAINER: TemplateContainer = {
+  entrypoint: null,
+  user: null,
+  pull: "missing",
+  seccompUnconfined: false,
+};
+
+/** A database section to start from. */
+export const STARTER_DATABASE: TemplateDatabase = {
+  engine: "mariadb",
+  image: "mariadb:11.4",
+  name: "gsm",
+  memoryMb: 1024,
+  enabledBy: null,
+};
 
 /** A minimal generic template new custom templates start from. */
 export const GENERIC_TEMPLATE: TemplateDefinitionInput = {

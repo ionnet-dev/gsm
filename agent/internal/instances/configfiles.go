@@ -44,6 +44,8 @@ func ApplyConfigFile(root string, spec protocol.ConfigFileSpec, uid, gid int) er
 		out, err = MergeYAML(existing, spec.Values)
 	case "xml-properties":
 		out = MergeXMLProperties(existing, spec.Values)
+	case "source-cfg":
+		out = MergeSourceCfg(existing, spec.Values)
 	default:
 		return fmt.Errorf("unknown config file format %q", spec.Format)
 	}
@@ -234,6 +236,80 @@ func MergeXMLProperties(existing []byte, values map[string]string) []byte {
 		return []byte(text[:i] + "\n" + add.String() + text[i:])
 	}
 	return []byte(text[:lineStart] + add.String() + text[lineStart:])
+}
+
+// MergeSourceCfg sets `name "value"` lines in a Source engine .cfg (Garry's Mod's server.cfg),
+// keeping every other line. Every line setting a name is rewritten (a trailing // comment stays),
+// since the last one would win; names not in the file yet are added at the end. Names compare
+// case-insensitively, like the engine's. Lines holding several commands (`a 1; b 2`) are left
+// alone, and a value set there is added again at the end, where it wins. Values lose double
+// quotes and line breaks, which the format cannot hold.
+func MergeSourceCfg(existing []byte, values map[string]string) []byte {
+	wanted := map[string]string{} // lower-cased name → name as given
+	for k := range values {
+		wanted[strings.ToLower(k)] = k
+	}
+	quote := func(v string) string {
+		return `"` + strings.NewReplacer(`"`, "", "\r", "", "\n", "").Replace(v) + `"`
+	}
+	set := map[string]bool{}
+	var out []string
+	if text := string(existing); text != "" {
+		for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+			trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+			if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+				out = append(out, line)
+				continue
+			}
+			name, rest := trimmed, ""
+			if i := strings.IndexAny(trimmed, " \t\""); i >= 0 {
+				name, rest = trimmed[:i], trimmed[i:]
+			}
+			key, ok := wanted[strings.ToLower(name)]
+			if !ok || cfgHasSeparator(rest) {
+				out = append(out, line)
+				continue
+			}
+			out = append(out, name+" "+quote(values[key])+cfgComment(rest))
+			set[key] = true
+		}
+	}
+	for _, k := range sortedKeys(values) {
+		if !set[k] {
+			out = append(out, k+" "+quote(values[k]))
+		}
+	}
+	return []byte(strings.Join(out, "\n") + "\n")
+}
+
+// cfgComment returns the `//` comment that ends a cfg line (with a space before it), outside quotes.
+func cfgComment(rest string) string {
+	quoted := false
+	for i := 0; i < len(rest); i++ {
+		switch {
+		case rest[i] == '"':
+			quoted = !quoted
+		case !quoted && strings.HasPrefix(rest[i:], "//"):
+			return " " + rest[i:]
+		}
+	}
+	return ""
+}
+
+// cfgHasSeparator reports a `;` outside quotes and comments: another command on the same line.
+func cfgHasSeparator(rest string) bool {
+	quoted := false
+	for i := 0; i < len(rest); i++ {
+		switch {
+		case rest[i] == '"':
+			quoted = !quoted
+		case !quoted && strings.HasPrefix(rest[i:], "//"):
+			return false
+		case !quoted && rest[i] == ';':
+			return true
+		}
+	}
+	return false
 }
 
 // MergeJSON sets dotted keys in a JSON object, creating nested objects as needed. Values that

@@ -8,6 +8,7 @@ import type {
   CreateInstanceBody,
   FirewallBackend,
   InstanceAccessDto,
+  InstanceDatabaseDto,
   InstanceDetailDto,
   InstanceDto,
   InstanceFirewallDto,
@@ -20,7 +21,15 @@ import type {
   TemplateDefinition,
   UpdateInstanceBody,
 } from "@gsm/shared";
-import { INSTANCE_STATUSES, POWER_ALLOWED, RPC_ERROR_CODES, validateVariable } from "@gsm/shared";
+import {
+  DATABASE_HOST,
+  DATABASE_PORT,
+  INSTANCE_STATUSES,
+  isOutdatedVersion,
+  POWER_ALLOWED,
+  RPC_ERROR_CODES,
+  validateVariable,
+} from "@gsm/shared";
 import type { z } from "zod";
 import {
   Instance,
@@ -46,8 +55,15 @@ import { resolveInstall } from "../templates/versions.ts";
 import type { InstanceScope } from "./access.ts";
 import { applyState, forgetUuid, pushConsole } from "./agent-events.ts";
 import { consoleHistory } from "./console.ts";
+import { checkMounts } from "./mounts.ts";
 import { allocatePorts } from "./ports.ts";
-import { buildInstall, buildSpec } from "./spec.ts";
+import {
+  buildInstall,
+  buildSpec,
+  CONTAINER_OPTIONS_AGENT,
+  databaseSpec,
+  newAgentFeature,
+} from "./spec.ts";
 
 const ilog = log.child("instances");
 
@@ -140,7 +156,13 @@ export function instanceDto(i: Instance, myRole: InstanceRole): InstanceDto {
     players: players.playersOf(t.definition) ? { online: players.onlineCount(i.id) } : null,
     reachability: reachabilityDto(i),
     firewall: firewallDto(i),
+    database: databaseSummary(i),
   };
+}
+
+function databaseSummary(i: Instance): InstanceDto["database"] {
+  const db = databaseSpec(i, i.template!.definition);
+  return db ? { engine: db.engine, image: db.image, name: db.name } : null;
 }
 
 export function instanceDetailDto(i: Instance, myRole: InstanceRole): InstanceDetailDto {
@@ -155,6 +177,15 @@ export function instanceDetailDto(i: Instance, myRole: InstanceRole): InstanceDe
     variables,
     startupOverride: i.startupOverride,
     createdBy: i.creator ? { id: i.creator.id, name: i.creator.name } : null,
+    volumes: def.volumes.map((v) => ({
+      name: v.name,
+      label: v.label,
+      description: v.description,
+      path: v.path,
+      folder: `volumes/${v.name}`,
+      backup: v.backup,
+    })),
+    mounts: i.mounts ?? [],
   };
 }
 
@@ -361,9 +392,12 @@ export async function update(
   const i = await get(id);
   const def = i.template!.definition;
   const structural = input.image !== undefined || input.ports !== undefined ||
-    input.limits !== undefined;
+    input.limits !== undefined || input.mounts !== undefined;
   if (structural && RUNNING.has(i.status)) {
-    throw conflict("Stop the instance before changing its image, ports or resources");
+    throw conflict("Stop the instance before changing its image, ports, resources or mounts");
+  }
+  if (input.mounts !== undefined) {
+    i.mounts = checkMounts(i.node!, input.mounts, def.volumes.map((v) => v.path));
   }
   if (input.name !== undefined) i.name = input.name;
   if (input.description !== undefined) i.description = input.description;
@@ -446,7 +480,18 @@ export async function remove(id: number, keepFiles: boolean, actorId: number): P
 
 async function specFor(i: Instance) {
   const { imageRegistry } = await getGeneral();
-  return buildSpec(i, i.template!.definition, i.node!, i.ports ?? [], imageRegistry);
+  const spec = buildSpec(i, i.template!.definition, i.node!, i.ports ?? [], imageRegistry);
+  assertAgentCan(i.node!, newAgentFeature(spec));
+  return spec;
+}
+
+/** An older agent would silently leave out what it does not know; refuse with a reason instead. */
+function assertAgentCan(node: Pick<Node, "name" | "agentVersion">, feature: string | null) {
+  if (feature && isOutdatedVersion(node.agentVersion, CONTAINER_OPTIONS_AGENT)) {
+    throw conflict(
+      `${feature} needs agent ${CONTAINER_OPTIONS_AGENT} or newer; ${node.name} runs ${node.agentVersion}. Update it from the node's page.`,
+    );
+  }
 }
 
 function assertOnline(i: Instance) {
@@ -610,6 +655,65 @@ export async function consoleTail(id: number, stream: "console" | "install", lin
 export async function stats(id: number) {
   const i = await get(id);
   return i.lastStats;
+}
+
+// ---------------------------------------------------------------------------
+// Database
+// ---------------------------------------------------------------------------
+
+const DATABASE_TIMEOUT_MS = 60 * 60_000;
+
+function databaseOf(i: Instance) {
+  const db = databaseSpec(i, i.template!.definition);
+  if (!db) throw notFound("Database");
+  return db;
+}
+
+/** How the game reaches the instance's database, password included. */
+export async function database(id: number): Promise<InstanceDatabaseDto> {
+  const db = databaseOf(await get(id));
+  return {
+    engine: db.engine,
+    image: db.image,
+    host: DATABASE_HOST,
+    port: DATABASE_PORT,
+    name: db.name,
+    user: db.user,
+    password: db.password,
+  };
+}
+
+async function readyForDatabaseWork(id: number) {
+  const i = await get(id);
+  const db = databaseOf(i);
+  assertOnline(i);
+  assertAgentCan(i.node!, "A database");
+  if (i.status === "installing") throw conflict("The instance is installing");
+  return { i, db };
+}
+
+/** `2026-09-14T09-30-05`: a timestamp that is safe in a file name. */
+const fileStamp = (d = new Date()) => d.toISOString().slice(0, 19).replaceAll(":", "-");
+
+/** Dump the database into the instance's files; returns where the file is. */
+export async function dumpDatabase(id: number, path: string | null) {
+  const { i, db } = await readyForDatabaseWork(id);
+  const target = path ?? `database-dumps/${db.name}-${fileStamp()}.sql.gz`;
+  return await agentGateway.request(i.nodeId, "db.dump", {
+    uuid: i.uuid,
+    database: db,
+    path: target,
+  }, {
+    timeoutMs: DATABASE_TIMEOUT_MS,
+  });
+}
+
+/** Replace the database's contents with a SQL file from the instance's files. */
+export async function importDatabase(id: number, path: string): Promise<void> {
+  const { i, db } = await readyForDatabaseWork(id);
+  await agentGateway.request(i.nodeId, "db.import", { uuid: i.uuid, database: db, path }, {
+    timeoutMs: DATABASE_TIMEOUT_MS,
+  });
 }
 
 // ---------------------------------------------------------------------------

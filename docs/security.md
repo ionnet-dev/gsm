@@ -53,12 +53,28 @@ What access to an instance means in practice:
 
 - **Console commands** are commands to the game server, with whatever the game allows.
 - **Files** are read and written inside the instance's own directory only; the agent refuses paths
-  and symlinks that leave it. Files are owned by uid 1500 (the container user), never root.
+  and symlinks that leave it. Files are owned by the container user (uid 1500, or the template's
+  user), never root. A template's volumes are folders of that directory too; the agent refuses to
+  mount one that has been turned into a symlink.
 - The **startup command** and **install script** run inside the instance's container: the startup
-  command and the install script both as uid 1500 with the instance's directory mounted (the install
-  in a one-off container). An owner, who can edit the startup override, or an admin editing a
-  template can therefore run arbitrary code _inside a container on the node_ with the instance's
-  files, memory and CPU limits, but not on the node itself. Only admins edit templates.
+  command and the install script both as the container user with the instance's directory mounted
+  (the install in a one-off container). An owner, who can edit the startup override, or an admin
+  editing a template can therefore run arbitrary code _inside a container on the node_ with the
+  instance's files, memory and CPU limits, but not on the node itself. Only admins edit templates.
+- **Container options** are template settings, so only admins choose them: another entrypoint, user
+  (never root), pulling on every start, and `seccompUnconfined`, which turns Docker's seccomp filter
+  off for that container (32-bit Source servers need it on some Docker hosts). The container still
+  runs unprivileged without added capabilities, but every system call is allowed; prefer a 64-bit
+  build where the game has one.
+- **Host mounts** put a node directory into one instance's container. Only admins set them, and only
+  below the directories the node's own agent config lists under `host_mounts`; with none listed (the
+  default) nothing can be mounted, so not even a compromised panel can mount the node's root or the
+  Docker socket. Mount read-only where you can; what the container writes there is owned by its uid.
+- A **database** runs in its own container on a network only the instance's container shares; no
+  port is published. The game's password is shown to owners and operators (Database tab) and is in
+  the game's own config, like any credential a game reads. Both database passwords are derived from
+  `SESSION_SECRET` and the instance, so none is stored; changing `SESSION_SECRET` changes them, and
+  existing databases then refuse the new ones until an admin resets them by hand.
 - **Backups** are archives of the instance directory, stored on the node and downloadable through
   the panel.
 - **Player actions** (kick, ban, op, …) are console commands from the template, so they allow
@@ -108,11 +124,14 @@ limited by expiry and use count, and should be revoked once the install is done.
 the same `/etc/machine-id` re-attaches the existing node and rotates its secret.
 
 The agent runs as root and uses the Docker socket: it creates containers with bind mounts of
-`/var/lib/gsm/instances/<uuid>`, published ports on the node's bind address, memory and CPU limits
-and `--user 1500:1500`. It never mounts anything outside `/var/lib/gsm`, never runs privileged
-containers, and refuses instance operations for uuids it did not create through the server. Registry
-credentials from Settings → Registry are sent to every agent over the authenticated socket and kept
-in memory only.
+`/var/lib/gsm/instances/<uuid>` (and folders in it), published ports on the node's bind address,
+memory and CPU limits and `--user 1500:1500` (or a template's user, never root). It mounts nothing
+outside `/var/lib/gsm` except host mounts under the `host_mounts` roots of its own config, never
+runs privileged containers, and refuses instance operations for uuids it did not create through the
+server. Database containers run the official MariaDB image as it is (its entrypoint starts as root
+and drops to its own user) with their files in `/var/lib/gsm/databases/<uuid>`. Registry credentials
+from Settings → Registry are sent to every agent over the authenticated socket and kept in memory
+only.
 
 File transfers are authenticated the same way: `/api/v1/agents/transfers/:token` needs the node's
 credentials _and_ a one-time token the server issued to that node for one transfer. Each side checks

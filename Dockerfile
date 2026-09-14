@@ -4,7 +4,7 @@
 FROM golang:1.27-alpine AS agent
 WORKDIR /src
 COPY agent/ .
-ARG VERSION=0.5.0
+ARG VERSION=0.6.0
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/x86_64 ./cmd/gsm-agent \
  && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/aarch64 ./cmd/gsm-agent \
  && cd /out && for f in x86_64 aarch64; do sha256sum $f | cut -d' ' -f1 > $f.sha256; done
@@ -19,7 +19,7 @@ RUN deno install --allow-scripts && cd web && deno run -A npm:vite build
 
 FROM denoland/deno:2.9.5
 WORKDIR /app
-ARG VERSION=0.5.0
+ARG VERSION=0.6.0
 COPY deno.json deno.lock ./
 COPY shared/ shared/
 COPY server/ server/

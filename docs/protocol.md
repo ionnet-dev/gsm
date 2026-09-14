@@ -26,45 +26,71 @@ Rules
 Schemas: `shared/src/protocol/agent.ts` (`agentMethods`). Params and results are the zod schemas
 named there; this table is the overview.
 
-| Method                    | Params                            | Result / stream                                                             |
-| ------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
-| `agent.ping`              | `{}`                              | `{ at, agentVersion }`                                                      |
-| `agent.configure`         | `AgentConfigureParams`            | `{ sftp?, firewall? }`, see SFTP and Firewall; after hello and changes      |
-| `agent.update`            | `{ version, path, sha256 }`       | `{ replaced, message }`; the agent restarts into the new binary             |
-| `sys.inventory`           | `{}`                              | `Inventory`                                                                 |
-| `inst.list`               | `{}`                              | `{ instances: InstanceState[] }` — every container labelled `gsm.instance`  |
-| `inst.status`             | `{ uuid }`                        | `InstanceState`                                                             |
-| `inst.install`            | `{ spec, install }`               | stream `{ lines: ConsoleLine[] }`; result `{ exitCode, durationMs }`        |
-| `inst.start`              | `{ spec }`                        | `InstanceState`                                                             |
-| `inst.stop`               | `{ uuid, force }`                 | `InstanceState` (after the exit)                                            |
-| `inst.restart`            | `{ spec }`                        | `InstanceState`                                                             |
-| `inst.command`            | `{ uuid, command }`               | `{}` — written to the game's stdin, or its console transport                |
-| `inst.consoleTail`        | `{ uuid, stream, lines }`         | `{ lines: ConsoleLine[] }` from the node's log file                         |
-| `inst.remove`             | `{ uuid, deleteFiles }`           | `{}`                                                                        |
-| `inst.stats`              | `{ uuids }`                       | `{ stats: InstanceStats[] }`                                                |
-| `fs.list` … `fs.download` | see `files.ts`                    | paths are relative to the instance root; see `docs/architecture.md` → Files |
-| `backup.create`           | `{ uuid, backupId, ignore }`      | stream `{ bytes, files }`; result `{ size, sha256, files }`                 |
-| `backup.restore`          | `{ uuid, backupId, wipe }`        | stream `{ bytes, files }`; result `{ files }`                               |
-| `backup.delete`           | `{ uuid, backupId }`              | `{}`                                                                        |
-| `backup.download`         | `{ opId, token, uuid, backupId }` | `{ size, sha256 }` after posting the bytes                                  |
-| `backup.list`             | `{ uuid }`                        | `{ backups: [{ backupId, size, mtime }] }`                                  |
-| `image.list`              | `{}`                              | `{ images: ImageInfo[] }`                                                   |
-| `image.pull`              | `{ ref }`                         | stream `PullProgress`; result `{ ref, id }`                                 |
-| `image.remove`            | `{ ref }`                         | `{}`                                                                        |
-| `sftp.sessions`           | `{ userIds? }`                    | `{ sessions: SftpSession[] }` — open SFTP connections                       |
-| `sftp.disconnect`         | `{ ids }`                         | `{ closed }`                                                                |
-| `net.probe`               | `ProbeParams`                     | stream `ProbeState` once listening; result `ProbeState` (see below)         |
-| `fw.apply`                | `{ key, ports }`                  | `{ backend, rules }` (see Firewall below)                                   |
+| Method                    | Params                                 | Result / stream                                                             |
+| ------------------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| `agent.ping`              | `{}`                                   | `{ at, agentVersion }`                                                      |
+| `agent.configure`         | `AgentConfigureParams`                 | `{ sftp?, firewall? }`, see SFTP and Firewall; after hello and changes      |
+| `agent.update`            | `{ version, path, sha256 }`            | `{ replaced, message }`; the agent restarts into the new binary             |
+| `sys.inventory`           | `{}`                                   | `Inventory`                                                                 |
+| `inst.list`               | `{}`                                   | `{ instances: InstanceState[] }` — every container labelled `gsm.instance`  |
+| `inst.status`             | `{ uuid }`                             | `InstanceState`                                                             |
+| `inst.install`            | `{ spec, install }`                    | stream `{ lines: ConsoleLine[] }`; result `{ exitCode, durationMs }`        |
+| `inst.start`              | `{ spec }`                             | `InstanceState`                                                             |
+| `inst.stop`               | `{ uuid, force }`                      | `InstanceState` (after the exit)                                            |
+| `inst.restart`            | `{ spec }`                             | `InstanceState`                                                             |
+| `inst.command`            | `{ uuid, command }`                    | `{}` — written to the game's stdin, or its console transport                |
+| `inst.consoleTail`        | `{ uuid, stream, lines }`              | `{ lines: ConsoleLine[] }` from the node's log file                         |
+| `inst.remove`             | `{ uuid, deleteFiles }`                | `{}`                                                                        |
+| `inst.stats`              | `{ uuids }`                            | `{ stats: InstanceStats[] }`                                                |
+| `db.dump`                 | `{ uuid, database, path }`             | `{ path, size }`: a gzipped SQL dump written into the instance's files      |
+| `db.import`               | `{ uuid, database, path }`             | `{}`: the database emptied, then filled from a `.sql` or `.sql.gz` file     |
+| `fs.list` … `fs.download` | see `files.ts`                         | paths are relative to the instance root; see `docs/architecture.md` → Files |
+| `backup.create`           | `{ uuid, backupId, ignore, database }` | stream `{ bytes, files }`; result `{ size, sha256, files }`                 |
+| `backup.restore`          | `{ uuid, backupId, wipe, database }`   | stream `{ bytes, files }`; result `{ files }`                               |
+| `backup.delete`           | `{ uuid, backupId }`                   | `{}`                                                                        |
+| `backup.download`         | `{ opId, token, uuid, backupId }`      | `{ size, sha256 }` after posting the bytes                                  |
+| `backup.list`             | `{ uuid }`                             | `{ backups: [{ backupId, size, mtime }] }`                                  |
+| `image.list`              | `{}`                                   | `{ images: ImageInfo[] }`                                                   |
+| `image.pull`              | `{ ref }`                              | stream `PullProgress`; result `{ ref, id }`                                 |
+| `image.remove`            | `{ ref }`                              | `{}`                                                                        |
+| `sftp.sessions`           | `{ userIds? }`                         | `{ sessions: SftpSession[] }` — open SFTP connections                       |
+| `sftp.disconnect`         | `{ ids }`                              | `{ closed }`                                                                |
+| `net.probe`               | `ProbeParams`                          | stream `ProbeState` once listening; result `ProbeState` (see below)         |
+| `fw.apply`                | `{ key, ports }`                       | `{ backend, rules }` (see Firewall below)                                   |
 
 ### The instance spec
 
 Every `inst.install`, `inst.start` and `inst.restart` carries the complete `InstanceSpec`
 (`shared/src/protocol/instances.ts`): image, startup command, environment, port bindings, bind
 address, limits, stop behaviour, ready pattern, console transport, config files to write
-(`properties`, `json`, `ini`, `yaml` or `xml-properties`), crash policy and the container user. The
-agent stores the last spec it saw per instance under `<data_dir>/state/` so a restarted agent can
-still stop an instance gracefully, but the server is the source of truth and resends the spec with
-every start.
+(`properties`, `json`, `ini`, `yaml`, `xml-properties` or `source-cfg`), crash policy, the container
+user, and since agent 0.6.0 `entrypoint` (null keeps the image's; `[]` runs without one, under
+Docker's init), `volumes`, `mounts`, `pull` (`missing` or `always`), `seccompUnconfined` and
+`database`. The agent stores the last spec it saw per instance under `<data_dir>/state/` so a
+restarted agent can still stop an instance gracefully, but the server is the source of truth and
+resends the spec with every start.
+
+### Volumes, host mounts and the database
+
+- `volumes: [{ name, path, seed }]`: the folder `<data_dir>/instances/<uuid>/volumes/<name>` is
+  bound at `path`. A missing one is created first (built beside its name and renamed into place);
+  with `seed` the agent copies the image's `path` into it from a created container
+  (`gsm-seed-<uuid>`), folders and regular files only. A volume folder that resolves anywhere else
+  (a symlink) is refused.
+- `mounts: [{ hostPath, containerPath, readOnly }]`: bound only when `hostPath`, symlinks resolved,
+  lies under a root in the agent config's `host_mounts` (sent as `Inventory.hostMountRoots` in every
+  hello). Two mounts on one container path are refused.
+- `database: { engine, image, name, user, password, rootPassword, memoryMb }`: before the game
+  starts, the agent makes network `gsm-net-<uuid>`, starts `gsm-db-<uuid>` on it with the alias `db`
+  and files in `<data_dir>/databases/<uuid>`, waits until it takes TCP connections (the image sets
+  itself up with networking off first), makes the database and user match the spec, and puts the
+  game's container on the same network. Stopping the instance stops it afterwards; `inst.restart`
+  and crashes leave it running; `inst.remove` removes it (and its files with `deleteFiles`). The
+  clients run inside that container with the root password in `MYSQL_PWD`, never on a command line.
+- `backup.create` with `database` dumps it to `.gsm/database.sql.gz` in the data directory before
+  archiving and deletes the file afterwards; `backup.restore` with `database` imports that file when
+  the archive had one. `db.dump` and `db.import` start a stopped database for the job and stop it
+  again unless the game started meanwhile.
 
 ### Console and states
 
@@ -95,6 +121,11 @@ dropped. RCON is Source RCON: an auth packet, then one exec packet per command. 
 the stop command go into the session (`invalid_params` while it is not connected), and every answer
 line becomes a game console line, except lines matching `ignore`. The console shows
 `[GSM] console connected (telnet)` and a note when the connection is lost.
+
+`fifo` (`path`, port 0) keeps no session: each command runs `sh -c 'cat > "$0"' <path>` in the
+container through `docker exec`, as the container's user, with the command line on stdin, and is
+refused (`invalid_params`) when `path` is not a named pipe yet rather than creating a file there.
+The game's answers are its own stdout.
 
 ## Agent → server events
 

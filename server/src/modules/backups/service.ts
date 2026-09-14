@@ -5,7 +5,7 @@
  */
 import type { Context } from "hono";
 import type { BackupDto } from "@gsm/shared";
-import { RPC_ERROR_CODES } from "@gsm/shared";
+import { isOutdatedVersion, RPC_ERROR_CODES } from "@gsm/shared";
 import type { AppEnv } from "../../app.ts";
 import { Backup, User } from "../../db/models.ts";
 import { conflict, notFound } from "../../lib/errors.ts";
@@ -16,6 +16,7 @@ import * as audit from "../audit/service.ts";
 import { currentUser } from "../auth/middleware.ts";
 import { issueTicket } from "../files/tickets.ts";
 import type { Instance } from "../instances/models.ts";
+import { CONTAINER_OPTIONS_AGENT, databaseSpec, volumeBackupIgnore } from "../instances/spec.ts";
 import { getHistoryRetention } from "../settings/service.ts";
 
 const blog = log.child("backups");
@@ -60,6 +61,17 @@ function assertOnline(i: Instance) {
   if (!agentGateway.isConnected(i.nodeId)) throw conflict("The node is not connected");
 }
 
+/** The database to dump into (or restore from) the archive; older agents cannot. */
+function databaseFor(i: Instance) {
+  const db = databaseSpec(i, i.template!.definition);
+  if (db && isOutdatedVersion(i.node?.agentVersion, CONTAINER_OPTIONS_AGENT)) {
+    throw conflict(
+      `Backups of a database need agent ${CONTAINER_OPTIONS_AGENT} or newer; update the node's agent first`,
+    );
+  }
+  return db;
+}
+
 const RUNNING = new Set(["running", "starting", "stopping", "installing"]);
 
 function stamp(d = new Date()) {
@@ -76,6 +88,7 @@ export async function create(
   input: { name: string; ignore: string[] },
 ): Promise<BackupDto> {
   assertOnline(i);
+  const database = databaseFor(i);
   const { backupsPerInstance } = await getHistoryRetention();
   if (backupsPerInstance > 0) {
     const count = await Backup.count({ where: { instanceId: i.id } });
@@ -99,12 +112,22 @@ export async function create(
     targetId: i.id,
     details: { backupId: row.backupId, name: row.name },
   });
-  const ignore = [...new Set([...i.template!.definition.backupIgnore, ...input.ignore])];
-  run(i, row, ignore).catch((err) => blog.warn("backup failed", { id: row.id, err: String(err) }));
+  const def = i.template!.definition;
+  const ignore = [
+    ...new Set([...def.backupIgnore, ...volumeBackupIgnore(def), ...input.ignore]),
+  ];
+  run(i, row, ignore, database).catch((err) =>
+    blog.warn("backup failed", { id: row.id, err: String(err) })
+  );
   return backupDto(await get(i.id, row.backupId));
 }
 
-async function run(i: Instance, row: Backup, ignore: string[]) {
+async function run(
+  i: Instance,
+  row: Backup,
+  ignore: string[],
+  database: ReturnType<typeof databaseSpec>,
+) {
   row.status = "running";
   await row.save();
   uiGateway.broadcast("backup.updated", { instanceId: i.id, backupId: row.backupId });
@@ -114,6 +137,7 @@ async function run(i: Instance, row: Backup, ignore: string[]) {
       uuid: i.uuid,
       backupId: row.backupId,
       ignore,
+      database,
     }, {
       timeoutMs: BACKUP_TIMEOUT_MS,
       onStream: async (chunk) => {
@@ -151,6 +175,7 @@ export async function restore(
   const b = await get(i.id, backupId);
   if (b.status !== "completed") throw conflict("Only a completed backup can be restored");
   if (RUNNING.has(i.status)) throw conflict("Stop the instance before restoring a backup");
+  const database = databaseFor(i);
   await audit.record({
     actorUserId: currentUser(c).id,
     action: "backup.restore",
@@ -162,6 +187,7 @@ export async function restore(
     uuid: i.uuid,
     backupId,
     wipe,
+    database,
   }, { timeoutMs: BACKUP_TIMEOUT_MS });
   blog.info("backup restored", { id: b.id, files: res.files });
   uiGateway.broadcast("instance.updated", { instanceId: i.id });

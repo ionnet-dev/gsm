@@ -61,6 +61,23 @@ func TestInstanceSpecFixture(t *testing.T) {
 	if len(spec.Ports) != 1 || spec.Ports[0].Host != 30000 || len(spec.Files) != 1 || spec.Files[0].Values["server-port"] != "30000" {
 		t.Fatalf("unexpected spec: %+v", spec)
 	}
+	// An empty entrypoint (run without one) must stay distinct from none given (keep the image's).
+	if spec.Entrypoint == nil || len(spec.Entrypoint) != 0 || spec.Pull != PullAlways || spec.SeccompUnconfined {
+		t.Fatalf("unexpected container options: %+v", spec)
+	}
+	if len(spec.Volumes) != 1 || spec.Volumes[0].Name != "maps" || !spec.Volumes[0].Seed {
+		t.Fatalf("unexpected volumes: %+v", spec.Volumes)
+	}
+	if len(spec.Mounts) != 1 || !spec.Mounts[0].ReadOnly || spec.Mounts[0].ContainerPath != "/opt/game/gamemodes" {
+		t.Fatalf("unexpected mounts: %+v", spec.Mounts)
+	}
+	if db := spec.Database; db == nil || db.Engine != "mariadb" || db.Name != "gsm" || db.MemoryMb != 1024 || db.RootPassword == "" {
+		t.Fatalf("unexpected database: %+v", spec.Database)
+	}
+	var none InstanceSpec
+	if err := json.Unmarshal([]byte(`{"uuid":"x","entrypoint":null}`), &none); err != nil || none.Entrypoint != nil || none.Database != nil {
+		t.Fatalf("null entrypoint and no database: %+v, %v", none, err)
+	}
 	out, err := json.Marshal(spec)
 	if err != nil {
 		t.Fatal(err)

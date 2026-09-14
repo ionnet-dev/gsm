@@ -49,6 +49,8 @@ type Dirs struct {
 	Logs      string
 	Backups   string
 	State     string
+	// Databases holds each instance's database files, outside the instance's own files.
+	Databases string
 }
 
 // Emitter sends an event to the server; nil drops it (not connected yet).
@@ -63,6 +65,8 @@ type Manager struct {
 	Root bool
 	// ownUID/ownGID are used for containers when not root.
 	ownUID, ownGID int
+	// HostMountRoots are the node directories instances may mount (host_mounts in the config).
+	HostMountRoots []string
 
 	emitMu sync.RWMutex
 	emit   Emitter
@@ -75,6 +79,8 @@ type Manager struct {
 type instance struct {
 	uuid string
 	opMu sync.Mutex
+	// dbMu serialises starting and stopping the database server with dumps and imports.
+	dbMu sync.Mutex
 
 	mu            sync.Mutex
 	spec          *protocol.InstanceSpec
@@ -455,8 +461,24 @@ func (m *Manager) Install(ctx context.Context, spec *protocol.InstanceSpec, inst
 	})
 	say := func(text string) { b.Add(protocol.ConsoleLine{At: nowMs(), Text: text}) }
 
-	if err := m.ensureImage(ctx, image, say); err != nil {
+	if err := m.imageFor(ctx, image, spec.Pull, say); err != nil {
 		say("[GSM] image pull failed: " + err.Error())
+		b.Close()
+		finish(err.Error())
+		return nil, err
+	}
+	// Seeded volumes are copied from the runtime image, which the install may not run in.
+	if image != spec.Image && seedsVolumes(spec) {
+		if err := m.imageFor(ctx, spec.Image, spec.Pull, say); err != nil {
+			say("[GSM] image pull failed: " + err.Error())
+			b.Close()
+			finish(err.Error())
+			return nil, err
+		}
+	}
+	binds, err := m.mountBinds(ctx, spec, say)
+	if err != nil {
+		say("[GSM] " + err.Error())
 		b.Close()
 		finish(err.Error())
 		return nil, err
@@ -472,15 +494,18 @@ func (m *Manager) Install(ctx context.Context, spec *protocol.InstanceSpec, inst
 	name := "gsm-install-" + spec.UUID
 	_ = m.dk.ContainerRemove(ctx, name)
 	id, err := m.dk.ContainerCreate(ctx, docker.CreateOptions{
-		Name:       name,
-		Image:      image,
-		Cmd:        []string{"sh", "/gsm/install.sh"},
-		Env:        envList(env),
-		WorkingDir: "/data",
-		User:       fmt.Sprintf("%d:%d", uid, gid),
-		Labels:     map[string]string{docker.LabelManaged: "true", "gsm.install": spec.UUID, docker.LabelName: spec.Name},
-		Binds:      []string{dataDir + ":/data", scriptPath + ":/gsm/install.sh:ro"},
-		Init:       false, // the base image runs tini as its entrypoint already
+		Name:        name,
+		Image:       image,
+		Cmd:         []string{"sh", "/gsm/install.sh"},
+		Env:         envList(env),
+		WorkingDir:  "/data",
+		User:        fmt.Sprintf("%d:%d", uid, gid),
+		Labels:      map[string]string{docker.LabelManaged: "true", "gsm.install": spec.UUID, docker.LabelName: spec.Name},
+		Binds:       append(binds, scriptPath+":/gsm/install.sh:ro"),
+		Entrypoint:  spec.Entrypoint,
+		SecurityOpt: securityOpts(spec),
+		// The base image runs tini as its entrypoint; a replaced entrypoint gets Docker's init.
+		Init: spec.Entrypoint != nil,
 	})
 	if err != nil {
 		say("[GSM] cannot create the install container: " + err.Error())
@@ -546,6 +571,23 @@ func (m *Manager) Install(ctx context.Context, spec *protocol.InstanceSpec, inst
 	return &protocol.InstInstallResult{ExitCode: code, DurationMs: time.Since(started).Milliseconds()}, nil
 }
 
+// imageFor makes sure the node has ref: pulled when missing or, with the always policy, every
+// time (keeping the node's copy when the registry cannot be reached).
+func (m *Manager) imageFor(ctx context.Context, ref, policy string, say func(string)) error {
+	if policy != protocol.PullAlways {
+		return m.ensureImage(ctx, ref, say)
+	}
+	err := m.pullImage(ctx, ref, say)
+	if err == nil {
+		return nil
+	}
+	if ok, _ := m.dk.ImageExists(ctx, ref); ok {
+		say("[GSM] could not pull " + ref + " (" + err.Error() + "); using the node's copy")
+		return nil
+	}
+	return err
+}
+
 func (m *Manager) ensureImage(ctx context.Context, ref string, say func(string)) error {
 	ok, err := m.dk.ImageExists(ctx, ref)
 	if err != nil {
@@ -554,9 +596,13 @@ func (m *Manager) ensureImage(ctx context.Context, ref string, say func(string))
 	if ok {
 		return nil
 	}
+	return m.pullImage(ctx, ref, say)
+}
+
+func (m *Manager) pullImage(ctx context.Context, ref string, say func(string)) error {
 	say("[GSM] pulling image " + ref)
 	last := time.Now()
-	_, err = m.dk.ImagePull(ctx, ref, func(p protocol.PullProgress) {
+	_, err := m.dk.ImagePull(ctx, ref, func(p protocol.PullProgress) {
 		if p.Layer == "" || time.Since(last) > 2*time.Second {
 			last = time.Now()
 			if p.Total > 0 {
@@ -645,7 +691,7 @@ func (m *Manager) startLocked(ctx context.Context, inst *instance, spec *protoco
 		inst.logFile = lf
 	}
 	say := func(text string) { m.consoleLine(inst, text) }
-	if err := m.ensureImage(ctx, spec.Image, say); err != nil {
+	if err := m.imageFor(ctx, spec.Image, spec.Pull, say); err != nil {
 		return fail(fmt.Errorf("image pull failed: %w", err))
 	}
 	uid, gid := m.Owner(spec)
@@ -656,6 +702,21 @@ func (m *Manager) startLocked(ctx context.Context, inst *instance, spec *protoco
 			}
 			return fail(fmt.Errorf("config file: %w", err))
 		}
+	}
+
+	binds, err := m.mountBinds(ctx, spec, say)
+	if err != nil {
+		return fail(err)
+	}
+	network := ""
+	if spec.Database != nil {
+		inst.dbMu.Lock()
+		err := m.ensureDatabase(ctx, spec.UUID, spec.Database, say)
+		inst.dbMu.Unlock()
+		if err != nil {
+			return fail(fmt.Errorf("database: %w", err))
+		}
+		network = instanceNetwork(spec.UUID)
 	}
 
 	name := "gsm-" + spec.UUID
@@ -676,14 +737,18 @@ func (m *Manager) startLocked(ctx context.Context, inst *instance, spec *protoco
 		WorkingDir:  "/data",
 		User:        fmt.Sprintf("%d:%d", uid, gid),
 		Labels:      map[string]string{docker.LabelInstance: spec.UUID, docker.LabelName: spec.Name, docker.LabelManaged: "true"},
-		Binds:       []string{dataDir + ":/data"},
+		Binds:       binds,
 		Ports:       ports,
 		BindAddress: bind,
 		MemoryBytes: int64(spec.Limits.MemoryMb) << 20,
 		NanoCPUs:    int64(spec.Limits.CPUCores * 1e9),
 		OpenStdin:   true,
-		Init:        false, // the base image runs tini as its entrypoint already
 		StopSignal:  spec.Stop.Signal,
+		Entrypoint:  spec.Entrypoint,
+		SecurityOpt: securityOpts(spec),
+		Network:     network,
+		// The base image runs tini as its entrypoint; a replaced entrypoint gets Docker's init.
+		Init: spec.Entrypoint != nil,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("create container: %w", err))
@@ -755,11 +820,36 @@ func (m *Manager) startTransport(ctx context.Context, inst *instance, containerI
 		}
 	}
 	t := newTransport(spec, address, emit, note)
+	if spec.Kind == "fifo" {
+		t.write = func(cmd string) error { return m.writeFIFO(containerID, spec.Path, cmd) }
+	}
 	go func() {
 		t.run(ctx)
 		b.Close()
 	}()
 	return t
+}
+
+// writeFIFO writes one command line into the named pipe a game reads its console from, as the
+// container's user, the way an operator would with `docker exec ... sh -c 'cat > pipe'`. A path
+// that is not a pipe (yet) is refused rather than created as a file.
+func (m *Manager) writeFIFO(containerID, pipe, cmd string) error {
+	if !strings.HasPrefix(pipe, "/") || filepath.Clean(pipe) != pipe {
+		return invalid("the console pipe %q is not an absolute path", pipe)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	script := `[ -p "$0" ] || { echo "no console pipe at $0" >&2; exit 3; }; cat > "$0"`
+	code, stderr, err := m.dk.Exec(ctx, containerID, []string{"sh", "-c", script, pipe}, nil, strings.NewReader(cmd+"\n"), nil)
+	switch {
+	case err != nil:
+		return fmt.Errorf("console pipe: %w", err)
+	case code == 3:
+		return errTransportDown
+	case code != 0:
+		return fmt.Errorf("console pipe: %s", firstOf(nil, stderr))
+	}
+	return nil
 }
 
 // watch waits for the container to exit and records the outcome.
@@ -843,7 +933,17 @@ func (m *Manager) Stop(ctx context.Context, uuid string, force bool) (*protocol.
 	return m.stopLocked(ctx, inst, force)
 }
 
+// stopLocked stops the game, then its database server.
 func (m *Manager) stopLocked(ctx context.Context, inst *instance, force bool) (*protocol.InstanceState, error) {
+	st, err := m.stopGameLocked(ctx, inst, force)
+	if err == nil {
+		m.stopDatabaseIdle(inst)
+	}
+	return st, err
+}
+
+// stopGameLocked stops the game's container and waits for it to exit.
+func (m *Manager) stopGameLocked(ctx context.Context, inst *instance, force bool) (*protocol.InstanceState, error) {
 	inst.mu.Lock()
 	if inst.installing {
 		if inst.installCancel != nil {
@@ -935,12 +1035,12 @@ func (m *Manager) finalState(inst *instance) *protocol.InstanceState {
 	return &st
 }
 
-// Restart stops (gracefully) and starts again from the spec.
+// Restart stops (gracefully) and starts again from the spec; the database keeps running.
 func (m *Manager) Restart(ctx context.Context, spec *protocol.InstanceSpec) (*protocol.InstanceState, error) {
 	inst := m.get(spec.UUID)
 	inst.opMu.Lock()
 	defer inst.opMu.Unlock()
-	if _, err := m.stopLocked(ctx, inst, false); err != nil {
+	if _, err := m.stopGameLocked(ctx, inst, false); err != nil {
 		return nil, err
 	}
 	return m.startLocked(ctx, inst, spec)
@@ -956,6 +1056,10 @@ func (m *Manager) Remove(ctx context.Context, uuid string, deleteFiles bool) err
 	}
 	_ = m.dk.ContainerRemove(ctx, "gsm-"+uuid)
 	_ = m.dk.ContainerRemove(ctx, "gsm-install-"+uuid)
+	_ = m.dk.ContainerRemove(ctx, "gsm-seed-"+uuid)
+	if err := m.removeDatabase(ctx, uuid, deleteFiles); err != nil {
+		return err
+	}
 	inst.mu.Lock()
 	if inst.logFile != nil {
 		inst.logFile.Close()

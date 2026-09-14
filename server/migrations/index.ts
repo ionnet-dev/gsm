@@ -12,6 +12,7 @@ import * as m0009 from "./0009-node-users.ts";
 import * as m0010 from "./0010-sftp.ts";
 import * as m0011 from "./0011-reachability.ts";
 import * as m0012 from "./0012-firewall.ts";
+import * as m0013 from "./0013-instance-mounts.ts";
 
 export const migrations: Migration[] = [
   { name: "0001-settings", ...m0001 },
@@ -26,4 +27,5 @@ export const migrations: Migration[] = [
   { name: "0010-sftp", ...m0010 },
   { name: "0011-reachability", ...m0011 },
   { name: "0012-firewall", ...m0012 },
+  { name: "0013-instance-mounts", ...m0013 },
 ];

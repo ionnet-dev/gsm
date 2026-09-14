@@ -40,6 +40,7 @@ func Collect(ctx context.Context, dataDir string, dk DockerInfoSource) protocol.
 		BootTime:         bootTime(),
 		Docker:           protocol.DockerInfo{Error: "docker client not initialised"},
 		DataDir:          dataDir,
+		HostMountRoots:   []string{},
 	}
 	if dk != nil {
 		inv.Docker = dk.Info(ctx)

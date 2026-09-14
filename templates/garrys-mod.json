@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 1,
+  "slug": "garrys-mod",
+  "name": "Garry's Mod",
+  "game": "Garry's Mod",
+  "description": "The Garry's Mod dedicated server (srcds), installed from Steam with SteamCMD. Pick the standard 32-bit build or the 64-bit x86-64 branch, the start map and the gamemode. A Workshop collection is downloaded on every start when you give a Steam Web API key. Gamemodes and addons go in server/garrysmod (file manager or SFTP). Optionally a MariaDB database runs beside the server, with MySQLOO installed for the gamemodes that use it.",
+  "icon": "🔧",
+  "tags": [
+    "garrys-mod",
+    "gmod",
+    "source",
+    "steam",
+    "sandbox"
+  ],
+  "image": "ghcr.io/ionnet-dev/gsm-steamcmd:latest",
+  "images": [],
+  "install": {
+    "image": null,
+    "script": "#!/bin/sh\n# Ionnet GSM install: Garry's Mod dedicated server from Steam (app 4020). Runs as the instance user\n# in /data; SteamCMD keeps its own files in /data/Steam.\nset -eu\ncd /data\nBRANCH=\"${GMOD_BRANCH:-public}\"\ncase \"$BRANCH\" in\n  \"\" | *[!A-Za-z0-9._-]*) echo \"Invalid Steam branch: $BRANCH\" >&2; exit 1 ;;\nesac\nset -- +force_install_dir /data/server +login anonymous +app_update 4020\n[ \"$BRANCH\" = public ] || set -- \"$@\" -beta \"$BRANCH\"\nset -- \"$@\" validate +quit\n# A fresh SteamCMD updates itself on its first run and drops an app_update queued with it.\nsteamcmd +quit >/dev/null 2>&1 || true\necho \"Installing Garry's Mod (branch $BRANCH) with SteamCMD. The first download is about 6 GB.\"\ntries=1\nuntil steamcmd \"$@\"; do\n  [ \"$tries\" -lt 3 ] || { echo \"SteamCMD failed $tries times; giving up.\" >&2; exit 1; }\n  tries=$((tries + 1))\n  echo \"SteamCMD failed; trying again in 10 seconds ($tries/3) ...\"\n  sleep 10\ndone\n[ -x server/srcds_run ] || { echo \"The server is missing after the install.\" >&2; exit 1; }\nmkdir -p server/garrysmod/cfg server/garrysmod/addons server/garrysmod/gamemodes server/garrysmod/data/gsm server/garrysmod/lua/bin\nif [ \"${MYSQLOO:-false}\" = true ]; then\n  # Pinned by version and checksum; the 64-bit branch needs the 64-bit module.\n  V=9.8.0-Beta3\n  if [ \"$BRANCH\" = x86-64 ]; then\n    F=gmsv_mysqloo_linux64.dll; SUM=95e49209d260fdf851b8fac37bb23aa0b3e862d81a50c6938f07dc55359b472f\n  else\n    F=gmsv_mysqloo_linux.dll; SUM=c9ce96d15ab24f1015928ae812d2bef05f52be27cf94ffa69f227744942bb1f1\n  fi\n  echo \"Installing MySQLOO $V ($F)\"\n  curl -fsSL --retry 3 -o \"server/garrysmod/lua/bin/$F.tmp\" \"https://github.com/FredyH/MySQLOO/releases/download/$V/$F\"\n  echo \"$SUM  server/garrysmod/lua/bin/$F.tmp\" | sha256sum -c -\n  mv \"server/garrysmod/lua/bin/$F.tmp\" \"server/garrysmod/lua/bin/$F\"\nfi\necho \"Install complete.\"\n",
+    "resolver": null,
+    "timeoutSeconds": 5400
+  },
+  "startup": "cd /data/server && set -- -game garrysmod -console -norestart -port \"$GSM_PORT_GAME\" +ip 0.0.0.0 -tickrate \"$TICKRATE\" +maxplayers \"$MAX_PLAYERS\" +gamemode \"$GAMEMODE\" +map \"$MAP\"; [ -z \"$GSLT\" ] || set -- \"$@\" +sv_setsteamaccount \"$GSLT\"; if [ -n \"$WORKSHOP_COLLECTION\" ]; then if [ -n \"$STEAM_API_KEY\" ]; then set -- \"$@\" +host_workshop_collection \"$WORKSHOP_COLLECTION\" -authkey \"$STEAM_API_KEY\"; else echo '[GSM] The Workshop collection needs a Steam Web API key; starting without it.'; fi; fi; BIN=./srcds_run; [ \"$GMOD_BRANCH\" != x86-64 ] || BIN=./srcds_run_x64; exec script -qfec \"$BIN $* $EXTRA_ARGS\" /dev/null",
+  "stop": {
+    "command": "quit",
+    "signal": "SIGTERM",
+    "timeoutSeconds": 30
+  },
+  "console": {
+    "readyPattern": "^(?:VAC secure mode (?:is activated|disabled)\\.|Could not establish connection to Steam servers\\.)",
+    "transport": null
+  },
+  "variables": [
+    {
+      "name": "GMOD_BRANCH",
+      "label": "Game version (Steam branch)",
+      "type": "version",
+      "default": "public",
+      "description": "public is the standard 32-bit build; x86-64 has 64-bit binaries, and binary modules must be 64-bit too. Changing it needs a reinstall.",
+      "required": true,
+      "editable": false,
+      "versionSource": "steam:4020",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    {
+      "name": "HOSTNAME",
+      "label": "Server name",
+      "type": "text",
+      "default": "My Garry's Mod server",
+      "description": "Shown in the server browser.",
+      "required": true,
+      "pattern": "^[^\"]{1,100}$"
+    },
+    {
+      "name": "MAP",
+      "label": "Start map",
+      "type": "text",
+      "default": "gm_flatgrass",
+      "description": "A map in garrysmod/maps or in the Workshop collection.",
+      "required": true,
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    {
+      "name": "GAMEMODE",
+      "label": "Gamemode",
+      "type": "text",
+      "default": "sandbox",
+      "description": "The gamemode's folder in garrysmod/gamemodes: sandbox, terrortown, or one you upload.",
+      "required": true,
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    {
+      "name": "MAX_PLAYERS",
+      "label": "Max players",
+      "type": "number",
+      "default": "16",
+      "required": true,
+      "min": 1,
+      "max": 128
+    },
+    {
+      "name": "SERVER_PASSWORD",
+      "label": "Join password",
+      "type": "text",
+      "default": "",
+      "description": "Players need it to join. Empty for an open server.",
+      "pattern": "^[^\"]{0,64}$"
+    },
+    {
+      "name": "REGION",
+      "label": "Region",
+      "type": "select",
+      "default": "255",
+      "description": "Where the server browser lists it.",
+      "options": [
+        {
+          "value": "255",
+          "label": "World"
+        },
+        {
+          "value": "0",
+          "label": "US East"
+        },
+        {
+          "value": "1",
+          "label": "US West"
+        },
+        {
+          "value": "2",
+          "label": "South America"
+        },
+        {
+          "value": "3",
+          "label": "Europe"
+        },
+        {
+          "value": "4",
+          "label": "Asia"
+        },
+        {
+          "value": "5",
+          "label": "Australia"
+        },
+        {
+          "value": "6",
+          "label": "Middle East"
+        },
+        {
+          "value": "7",
+          "label": "Africa"
+        }
+      ]
+    },
+    {
+      "name": "GSLT",
+      "label": "Game server login token",
+      "type": "text",
+      "default": "",
+      "description": "Lets the server keep its place in the server browser. Make one for app 4000 at steamcommunity.com/dev/managegameservers.",
+      "group": "Steam and Workshop",
+      "viewable": false,
+      "pattern": "^[A-Za-z0-9]{0,64}$"
+    },
+    {
+      "name": "WORKSHOP_COLLECTION",
+      "label": "Workshop collection",
+      "type": "text",
+      "default": "",
+      "description": "The id of a Workshop collection the server downloads and mounts on every start. Needs the Steam Web API key.",
+      "group": "Steam and Workshop",
+      "pattern": "^[0-9]{0,20}$"
+    },
+    {
+      "name": "STEAM_API_KEY",
+      "label": "Steam Web API key",
+      "type": "text",
+      "default": "",
+      "description": "From steamcommunity.com/dev/apikey; only used to download the Workshop collection.",
+      "group": "Steam and Workshop",
+      "viewable": false,
+      "pattern": "^[A-Fa-f0-9]{0,64}$"
+    },
+    {
+      "name": "FASTDL_URL",
+      "label": "FastDL address",
+      "type": "text",
+      "default": "",
+      "description": "sv_downloadurl: a web server clients download custom content from.",
+      "group": "Downloads",
+      "pattern": "^[^\"\\s]{0,300}$"
+    },
+    {
+      "name": "LOADING_URL",
+      "label": "Loading screen",
+      "type": "text",
+      "default": "",
+      "description": "sv_loadingurl: a web page shown while players join.",
+      "group": "Downloads",
+      "pattern": "^[^\"\\s]{0,300}$"
+    },
+    {
+      "name": "DATABASE",
+      "label": "MariaDB database",
+      "type": "boolean",
+      "default": "false",
+      "description": "Runs a MariaDB server beside the game, reachable as db:3306. The credentials are on the Database tab and in garrysmod/data/gsm/database.json.",
+      "group": "Database"
+    },
+    {
+      "name": "MYSQLOO",
+      "label": "Install MySQLOO",
+      "type": "boolean",
+      "default": "false",
+      "description": "Adds the MySQLOO module (9.8.0-Beta3) for gamemodes that talk to MySQL. Takes effect on the next install or reinstall.",
+      "group": "Database"
+    },
+    {
+      "name": "TICKRATE",
+      "label": "Tick rate",
+      "type": "number",
+      "default": "66",
+      "group": "Advanced",
+      "min": 10,
+      "max": 128
+    },
+    {
+      "name": "EXTRA_ARGS",
+      "label": "More command-line options",
+      "type": "text",
+      "default": "",
+      "description": "Added to the srcds command line, like -disableluarefresh or +sv_lan 0.",
+      "group": "Advanced",
+      "pattern": "^[A-Za-z0-9_+.,:/= -]{0,500}$"
+    }
+  ],
+  "ports": [
+    {
+      "name": "game",
+      "label": "Game port",
+      "protocol": "udp",
+      "default": 27015,
+      "primary": true
+    }
+  ],
+  "files": [
+    {
+      "path": "server/garrysmod/cfg/server.cfg",
+      "format": "source-cfg",
+      "values": {
+        "hostname": "{{HOSTNAME}}",
+        "sv_password": "{{SERVER_PASSWORD}}",
+        "sv_region": "{{REGION}}",
+        "sv_downloadurl": "{{FASTDL_URL}}",
+        "sv_loadingurl": "{{LOADING_URL}}",
+        "sv_lan": "0",
+        "log": "on",
+        "sv_logecho": "1"
+      }
+    },
+    {
+      "path": "server/garrysmod/data/gsm/database.json",
+      "format": "json",
+      "values": {
+        "host": "{{GSM_DB_HOST}}",
+        "port": "{{GSM_DB_PORT}}",
+        "database": "{{GSM_DB_NAME}}",
+        "user": "{{GSM_DB_USER}}",
+        "password": "{{GSM_DB_PASSWORD}}"
+      }
+    }
+  ],
+  "database": {
+    "engine": "mariadb",
+    "image": "mariadb:11.4",
+    "name": "gmod",
+    "memoryMb": 1024,
+    "enabledBy": "DATABASE"
+  },
+  "resources": {
+    "memoryMb": 4096,
+    "cpuCores": 0,
+    "diskMb": 0
+  },
+  "restartOnCrash": true,
+  "backupIgnore": [
+    "server/sourceengine/**",
+    "server/bin/**",
+    "server/linux64/**",
+    "server/platform/**",
+    "server/steamapps/**",
+    "server/*.so",
+    "server/srcds_*",
+    "server/garrysmod/*.vpk",
+    "server/garrysmod/fallbacks/**",
+    "server/garrysmod/cache/**",
+    "server/garrysmod/steamapps/**",
+    "Steam/**",
+    ".steam/**"
+  ],
+  "players": {
+    "namePattern": "^[^\\x00-\\x1f\"]{1,64}$",
+    "console": {
+      "join": "^L \\d{2}/\\d{2}/\\d{4} - \\d{2}:\\d{2}:\\d{2}: \"(?<name>.+)<\\d+><(?<id>STEAM_\\d:\\d:\\d+)><[^<>]*>\" entered the game$",
+      "leave": "^L \\d{2}/\\d{2}/\\d{4} - \\d{2}:\\d{2}:\\d{2}: \"(?<name>.+)<\\d+><STEAM_\\d:\\d:\\d+><[^<>]*>\" disconnected \\(reason \".*\"\\)$",
+      "identify": null,
+      "refresh": null
+    },
+    "list": {
+      "command": "status;echo ---- end of status",
+      "pattern": "^---- end of status\\s*$",
+      "line": "^#\\s+\\d+\\s+\"(?<name>.*)\"\\s+(?<id>STEAM_\\d:\\d:\\d+)\\s"
+    },
+    "lists": [],
+    "actions": [
+      {
+        "id": "kick",
+        "label": "Kick",
+        "group": "Moderation",
+        "icon": "kick",
+        "online": true,
+        "danger": true,
+        "command": "kickid \"{{PLAYER_ID}}\" \"{{REASON}}\"",
+        "fields": [
+          {
+            "name": "REASON",
+            "label": "Reason",
+            "type": "text",
+            "placeholder": "Shown to the player"
+          }
+        ]
+      },
+      {
+        "id": "ban",
+        "label": "Ban",
+        "group": "Moderation",
+        "icon": "ban",
+        "danger": true,
+        "command": "banid {{MINUTES}} \"{{PLAYER_ID}}\" kick; writeid",
+        "fields": [
+          {
+            "name": "MINUTES",
+            "label": "Minutes (0 is forever)",
+            "type": "number",
+            "required": true,
+            "default": "0",
+            "min": 0,
+            "max": 525600
+          }
+        ]
+      },
+      {
+        "id": "unban",
+        "label": "Unban",
+        "group": "Moderation",
+        "icon": "unban",
+        "command": "removeid \"{{PLAYER_ID}}\"; writeid"
+      }
+    ]
+  }
+}

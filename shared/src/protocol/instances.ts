@@ -8,6 +8,8 @@ import {
   CONFIG_FILE_FORMATS,
   CONSOLE_STREAMS,
   CONSOLE_TRANSPORTS,
+  DATABASE_ENGINES,
+  IMAGE_PULL_POLICIES,
   STOP_SIGNALS,
 } from "../enums.ts";
 
@@ -45,17 +47,64 @@ export const ConfigFileSpec = z.object({
 export type ConfigFileSpec = z.infer<typeof ConfigFileSpec>;
 
 /**
- * Where console commands go instead of stdin. The agent dials `port` on the container's address
- * (it is never published on the node), signs in with `password` and turns the game's answers into
- * console lines, leaving out those matching `ignore` (the game printed them on stdout already).
+ * Where console commands go instead of stdin. For telnet and rcon the agent dials `port` on the
+ * container's address (it is never published on the node), signs in with `password` and turns the
+ * game's answers into console lines, leaving out those matching `ignore` (the game printed them on
+ * stdout already). For fifo it writes each command into the named pipe at `path` inside the
+ * container (port 0); the answers come on stdout.
  */
 export const ConsoleTransport = z.object({
   kind: z.enum(CONSOLE_TRANSPORTS),
-  port: z.number().int().min(1).max(65535),
+  port: z.number().int().min(0).max(65535),
+  path: z.string().max(300).nullable().default(null),
   password: z.string().max(200),
   ignore: z.string().max(500).nullable(),
 });
 export type ConsoleTransport = z.infer<typeof ConsoleTransport>;
+
+/**
+ * A directory of the instance mounted at `path` in the container. The agent keeps it at
+ * volumes/<name> in the instance's data directory and creates it before the container starts;
+ * with `seed`, a new one is filled with what the image has at `path`.
+ */
+export const VolumeSpec = z.object({
+  name: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/),
+  path: z.string().min(2).max(300),
+  seed: z.boolean(),
+});
+export type VolumeSpec = z.infer<typeof VolumeSpec>;
+
+/**
+ * A directory on the node mounted into the container. The agent refuses paths outside the roots
+ * its config allows (`host_mounts`), so the panel alone cannot expose the node.
+ */
+export const HostMountSpec = z.object({
+  hostPath: z.string().min(2).max(500),
+  containerPath: z.string().min(2).max(300),
+  readOnly: z.boolean(),
+});
+export type HostMountSpec = z.infer<typeof HostMountSpec>;
+
+/**
+ * The instance's database server: container `gsm-db-<uuid>` on network `gsm-<uuid>`, reachable
+ * from the game as `db:3306`, files under `<data_dir>/databases/<uuid>`. Passwords are derived by
+ * the server per instance.
+ */
+export const DatabaseSpec = z.object({
+  engine: z.enum(DATABASE_ENGINES),
+  image: z.string().min(1).max(300),
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/),
+  user: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/),
+  password: z.string().min(16).max(200),
+  rootPassword: z.string().min(16).max(200),
+  /** 0 = unlimited. */
+  memoryMb: z.number().int().min(0),
+});
+export type DatabaseSpec = z.infer<typeof DatabaseSpec>;
+
+/** The database's host name on the instance's network, and its port. */
+export const DATABASE_HOST = "db";
+export const DATABASE_PORT = 3306;
 
 /** Everything the agent needs to run the instance's container. */
 export const InstanceSpec = z.object({
@@ -88,6 +137,19 @@ export const InstanceSpec = z.object({
   restartOnCrash: z.boolean(),
   /** The uid:gid the container runs as and the data directory is owned by. */
   user: z.object({ uid: z.number().int(), gid: z.number().int() }),
+  /**
+   * Replaces the image's entrypoint (then `sh -c <startup>` follows it, and Docker's init runs as
+   * PID 1); empty means none. Null keeps the image's.
+   */
+  entrypoint: z.array(z.string()).nullable().default(null),
+  volumes: z.array(VolumeSpec).max(16).default([]),
+  mounts: z.array(HostMountSpec).max(16).default([]),
+  /** `always`: pull the image before starting or installing even when the node has it. */
+  pull: z.enum(IMAGE_PULL_POLICIES).default("missing"),
+  /** Run without Docker's seccomp filter. */
+  seccompUnconfined: z.boolean().default(false),
+  /** A database server to run beside the game (started first, stopped after it); null for none. */
+  database: DatabaseSpec.nullable().default(null),
 });
 export type InstanceSpec = z.infer<typeof InstanceSpec>;
 
@@ -200,6 +262,30 @@ export const instanceMethods = {
   "inst.stats": {
     params: z.object({ uuids: z.array(InstanceUuid).max(500) }),
     result: z.object({ stats: z.array(InstanceStats) }),
+  },
+  /**
+   * Dump the instance's database into a gzipped SQL file at `path` in its files (relative to the
+   * data directory). A stopped database is started for the dump and stopped again.
+   */
+  "db.dump": {
+    params: z.object({
+      uuid: InstanceUuid,
+      database: DatabaseSpec,
+      path: z.string().min(1).max(512),
+    }),
+    result: z.object({ path: z.string(), size: z.number().int().nonnegative() }),
+  },
+  /**
+   * Replace the database's contents with a SQL file (plain, or gzipped when it ends in .gz) at
+   * `path` in the instance's files.
+   */
+  "db.import": {
+    params: z.object({
+      uuid: InstanceUuid,
+      database: DatabaseSpec,
+      path: z.string().min(1).max(512),
+    }),
+    result: z.object({}),
   },
 } as const;
 

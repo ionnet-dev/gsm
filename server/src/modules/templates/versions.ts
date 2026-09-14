@@ -214,6 +214,15 @@ export const STEAM_FALLBACK_BRANCHES: VersionOption[] = [
   },
 ];
 
+/** Apps whose standing branches differ from the usual two. */
+const STEAM_APP_FALLBACKS: Record<string, VersionOption[]> = {
+  // Garry's Mod: the default 32-bit build and the 64-bit one.
+  "4020": [
+    { id: "public", label: "public (stable)", kind: "release", releasedAt: null },
+    { id: "x86-64", label: "x86-64 (64-bit binaries)", kind: "old", releasedAt: null },
+  ],
+};
+
 /**
  * An app's branches as versions: `public` first (labelled with the named branch of the same
  * build), then `latest_experimental`, then the rest newest first. Password branches are left out.
@@ -255,8 +264,8 @@ async function steamVersions(appId: string): Promise<VersionOption[]> {
       return steamBranchOptions(branches);
     });
   } catch {
-    // Installs take the branch name as it is; the two standing branches always exist.
-    return STEAM_FALLBACK_BRANCHES;
+    // Installs take the branch name as it is; the standing branches always exist.
+    return STEAM_APP_FALLBACKS[appId] ?? STEAM_FALLBACK_BRANCHES;
   }
 }
 
@@ -275,6 +284,8 @@ export async function listVersions(
       return await neoforgeVersions(parent);
     case "steam:294420":
       return await steamVersions("294420");
+    case "steam:4020":
+      return await steamVersions("4020");
   }
 }
 

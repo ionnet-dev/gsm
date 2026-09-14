@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -39,6 +40,14 @@ func registerBackups(client *transport.Client, m *instances.Manager, xfer *trans
 		}
 		dest := backups.ArchivePath(backupsDir(p.UUID), "", p.BackupID)
 		log.Info("backup.create", "uuid", p.UUID, "backup", p.BackupID)
+		if p.Database != nil {
+			// The dump rides in the archive as .gsm/database.sql.gz; the files keep no copy.
+			if err := m.DumpForBackup(ctx, p.UUID, p.Database); err != nil {
+				log.Warn("backup.create: database dump failed", "uuid", p.UUID, "err", err)
+				return nil, rpcErr(fmt.Errorf("database dump: %w", err))
+			}
+			defer m.RemoveBackupDump(p.UUID)
+		}
 		res, err := backups.Create(ctx, m.DataDir(p.UUID), dest, p.Ignore, func(pr protocol.BackupProgress) {
 			_ = stream.Send(pr)
 		})
@@ -65,6 +74,16 @@ func registerBackups(client *transport.Client, m *instances.Manager, xfer *trans
 		res, err := backups.Restore(ctx, archive, m.DataDir(p.UUID), p.Wipe, uid, gid, chown, func(pr protocol.BackupProgress) {
 			_ = stream.Send(pr)
 		})
+		if err == nil && p.Database != nil {
+			found, ierr := m.RestoreBackupDump(ctx, p.UUID, p.Database)
+			if ierr != nil {
+				log.Warn("backup.restore: database import failed", "uuid", p.UUID, "err", ierr)
+				return nil, rpcErr(fmt.Errorf("the files are back, but importing the database failed: %w", ierr))
+			}
+			if found {
+				log.Info("backup.restore: database imported", "uuid", p.UUID)
+			}
+		}
 		return res, backupErr(err)
 	})
 	client.Handle("backup.delete", func(_ context.Context, raw json.RawMessage, _ transport.StreamWriter) (any, error) {

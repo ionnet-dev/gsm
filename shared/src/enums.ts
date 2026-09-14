@@ -51,10 +51,29 @@ export type StopSignal = (typeof STOP_SIGNALS)[number];
 
 /**
  * Config files a template keeps in step with its variables before every start. `xml-properties`
- * is a file of `<property name="…" value="…"/>` elements, such as 7 Days to Die's serverconfig.xml.
+ * is a file of `<property name="…" value="…"/>` elements, such as 7 Days to Die's serverconfig.xml;
+ * `source-cfg` a Source engine .cfg of `name "value"` lines, such as Garry's Mod's server.cfg.
  */
-export const CONFIG_FILE_FORMATS = ["properties", "json", "ini", "yaml", "xml-properties"] as const;
+export const CONFIG_FILE_FORMATS = [
+  "properties",
+  "json",
+  "ini",
+  "yaml",
+  "xml-properties",
+  "source-cfg",
+] as const;
 export type ConfigFileFormat = (typeof CONFIG_FILE_FORMATS)[number];
+
+/**
+ * When the agent pulls an instance's image: only when the node does not have it, or before every
+ * start and install (for images published under a moving tag such as `latest`).
+ */
+export const IMAGE_PULL_POLICIES = ["missing", "always"] as const;
+export type ImagePullPolicy = (typeof IMAGE_PULL_POLICIES)[number];
+
+/** Database servers a template can ask to have run beside an instance. */
+export const DATABASE_ENGINES = ["mariadb"] as const;
+export type DatabaseEngine = (typeof DATABASE_ENGINES)[number];
 
 /** Second sign-in factors a user can turn on. */
 export const TWO_FACTOR_METHODS = ["totp", "email"] as const;
@@ -66,9 +85,10 @@ export type SecondFactor = (typeof SECOND_FACTORS)[number];
 
 /**
  * How console commands reach a game that does not read its stdin: a telnet session or Source RCON
- * on a port inside the container, which the agent dials over the Docker network.
+ * on a port inside the container, which the agent dials over the Docker network, or a named pipe
+ * inside the container (`fifo`) that the image's own start script reads the console from.
  */
-export const CONSOLE_TRANSPORTS = ["telnet", "rcon"] as const;
+export const CONSOLE_TRANSPORTS = ["telnet", "rcon", "fifo"] as const;
 export type ConsoleTransportKind = (typeof CONSOLE_TRANSPORTS)[number];
 
 /** Which console a line belongs to: the game's own, or an install run's. */
